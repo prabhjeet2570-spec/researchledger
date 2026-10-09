@@ -10,12 +10,11 @@ files, extension-based capture proposals without invented relationships, exclude
 directories and symlinks, real Git ignore behavior (including spaces/newlines),
 Git revision capture, bounded traversal, and actual CLI validation/error exits.
 
-Historical import has been validated locally using synthetic evidence: artifact
+Five historical import tests use synthetic evidence to check artifact
 preservation across working-file edits and reopening, artifact tamper detection,
 artifact-only imports, explicit unverified claims/gaps, rejection of missing or
-duplicate paths and nonfinite claims, and CLI import/error exits. New regression
-tests for import are being published in a separate follow-up commit; the current
-repository suite still contains the thirteen capture/inspection tests.
+duplicate paths and nonfinite claims, and CLI import/error exits. The repository
+suite contains eighteen tests across capture, inspection and historical import.
 
 Run against an installed package:
 
