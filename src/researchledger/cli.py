@@ -30,6 +30,16 @@ def main(argv=None):
     record.add_argument("--origin", choices=["manual", "agent", "historical"], default="manual")
     history = commands.add_parser("import", help="Capture explicitly mapped historical evidence")
     history.add_argument("--manifest", type=Path, required=True, help="Historical evidence JSON")
+    run = commands.add_parser("run", help="Execute a captured Python script locally")
+    run.add_argument("id", help="Saved experiment record ID")
+    run.add_argument("--entrypoint", required=True)
+    run.add_argument("--output", action="append", default=[], help="Expected file relative to run workspace")
+    run.add_argument("--arg", action="append", default=[], help="Script argument; use --arg=-flag")
+    run.add_argument("--timeout", type=float, default=3600)
+    runs = commands.add_parser("runs", help="List local execution attempts")
+    runs.add_argument("--record")
+    show_run = commands.add_parser("show-run", help="Read a persisted execution attempt")
+    show_run.add_argument("id")
     commands.add_parser("list", help="List saved experiment records as JSON")
     show = commands.add_parser("show", help="Inspect a saved experiment")
     show.add_argument("id")
@@ -50,6 +60,15 @@ def main(argv=None):
                                         args.parent, args.origin)
             elif args.command == "import":
                 output = project.import_history(json.loads(args.manifest.read_text()))
+            elif args.command == "run":
+                output = project.execute(args.id, args.entrypoint, outputs=args.output,
+                                         arguments=args.arg, timeout=args.timeout)
+                print(canonical(output))
+                return 0 if output["status"] == "succeeded" else 1
+            elif args.command == "runs":
+                output = project.runs(args.record)
+            elif args.command == "show-run":
+                output = project.get_run(args.id)
             elif args.command == "list":
                 output = project.records()
             elif args.command == "show":

@@ -210,6 +210,33 @@ class Project:
             rows = db.execute("SELECT payload FROM records ORDER BY rowid").fetchall()
         return [json.loads(row[0]) for row in rows]
 
+    def execute(self, record_id, entrypoint, *, outputs=(), arguments=(), timeout=3600):
+        """Execute a copied source snapshot locally; each attempt gets a run ID."""
+        from .executor import execute
+        return execute(self, record_id, entrypoint, outputs=outputs,
+                       arguments=arguments, timeout=timeout)
+
+    def _save_run(self, payload):
+        with self.connect() as db:
+            db.execute("CREATE TABLE IF NOT EXISTS runs (id TEXT PRIMARY KEY, payload TEXT NOT NULL)")
+            db.execute("INSERT INTO runs VALUES (?, ?) ON CONFLICT(id) DO UPDATE SET payload=excluded.payload",
+                       (payload["id"], canonical(payload)))
+
+    def runs(self, record_id=None):
+        """Read persisted attempts without modifying pre-executor ledgers."""
+        with self.connect() as db:
+            if not db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='runs'").fetchone():
+                return []
+            rows = db.execute("SELECT payload FROM runs ORDER BY rowid").fetchall()
+        values = [json.loads(row[0]) for row in rows]
+        return [r for r in values if record_id is None or r["record_id"] == record_id]
+
+    def get_run(self, identifier):
+        for run in self.runs():
+            if run["id"] == identifier:
+                return run
+        raise LedgerError(f"Unknown run: {identifier}")
+
     def verify(self):
         """Verify saved source/artifact bytes. Does not check scientific correctness."""
         errors = []

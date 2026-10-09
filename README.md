@@ -9,7 +9,7 @@ An agent and a researcher use the same Python or command-line operations.
 
 **Current status: directory inventory, source capture and historical evidence import.** Recording a notebook does not execute
 it, recover its kernel history, or establish that its contents produced a result.
-Execution and paper evidence exports are planned
+Local Python execution is available; HPC execution and paper evidence exports are planned
 in [the progressive roadmap](docs/roadmap.md).
 
 ## Try the first milestone
@@ -106,6 +106,21 @@ Existing source-only records remain readable. Import does not parse result
 tables, validate scientific claims, deduplicate repeated imports, or execute code.
 
 ## Use from Python
+
+Run a captured Python script with `researchledger run exp-<identifier>
+--entrypoint experiment.py --output metrics.json --timeout 60`. The script runs
+from a verified working copy using the CLI's Python interpreter. It can read
+the stored configuration from the file named by `RESEARCHLEDGER_CONFIG`.
+`researchledger runs` and `researchledger show-run run-<identifier>` read attempts.
+Logs, working copies and declared output snapshots live in `.research/runs/`.
+Python also supports `project.execute(record_id, "experiment.py",
+outputs=["metrics.json"], timeout=60)`. Each attempt has its own run record;
+the source record remains unchanged. A successful process with missing declared
+outputs is marked `outputs_incomplete`. Failures and timeouts retain available
+outputs and logs. Notebook execution and crash reconciliation are not implemented.
+Execution inherits your environment and is **not a sandbox**. Run trusted code
+only; neither exit status nor output hashes establish scientific correctness.
+`verify` currently checks experiment snapshots, not run logs/output snapshots.
 
 ```python
 from researchledger import Project
