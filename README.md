@@ -7,9 +7,9 @@ scripts and Jupyter notebooks. It inventories project directories, captures
 explicit source files and configurations, records provenance gaps, and verifies saved snapshots.
 An agent and a researcher use the same Python or command-line operations.
 
-**Current status: directory inventory and source capture.** Recording a notebook does not execute
+**Current status: directory inventory, source capture and historical evidence import.** Recording a notebook does not execute
 it, recover its kernel history, or establish that its contents produced a result.
-Execution, historical artifact imports, and paper evidence exports are planned
+Execution and paper evidence exports are planned
 in [the progressive roadmap](docs/roadmap.md).
 
 ## Try the first milestone
@@ -66,6 +66,44 @@ from researchledger import inspect_project
 
 report = inspect_project("/path/to/study", exclude=["private*"], max_entries=2000)
 ```
+
+## Preserve historical evidence
+
+After reviewing the directory inventory, explicitly map available source and
+result files into a JSON manifest. For example, `history.json`:
+
+```json
+{
+  "question": "What error was reported for degree three?",
+  "sources": ["approximation.ipynb"],
+  "artifacts": [{"path": "results/errors.csv", "role": "reported error table"}],
+  "config": {"degree": 3},
+  "claims": {"reported_max_error": 0.12},
+  "context": {"study_label": "earlier exploratory run"},
+  "gaps": ["Executed notebook version and calibration inputs unavailable"]
+}
+```
+
+```bash
+researchledger import --manifest history.json
+researchledger verify
+```
+
+Python uses `project.import_history(manifest)` with the same JSON-compatible
+object. File paths are relative to the research project, regardless of the
+manifest's location. `sources` is optional when original code is unavailable;
+at least one artifact with a declared `path` and `role` is required. All listed
+files must exist; describe unavailable files in `gaps` rather than inventing
+snapshots. Unknown manifest fields and nonfinite values are rejected. An optional
+`parent` links an existing record; corrections create a new record.
+
+Imported bytes are copied and hashed alongside source snapshots. `verify` checks
+both kinds of saved file. Roles, configuration, context and claims are importer
+declarations, not facts inferred from file contents. Every import retains
+`execution_status: not_observed`, labels its claims `unverified_declaration`, and
+adds an explicit execution/verification gap even if no other gaps are supplied.
+Existing source-only records remain readable. Import does not parse result
+tables, validate scientific claims, deduplicate repeated imports, or execute code.
 
 ## Use from Python
 

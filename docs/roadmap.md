@@ -10,6 +10,8 @@ No prepared future code is replayed to manufacture a development history.
    import; semantic relationships and notebook execution analysis remain future work.
 2. **Evidence import and export:** import mapped historical artifacts without
    inventing execution; portable manifests, evidence tables, missing-file reports.
+   Explicit historical imports with artifact snapshots, declared claims and
+   provenance gaps are implemented. Portable evidence export remains next.
 3. **Local execution:** execute fixed snapshots/configurations, record environment,
    logs and outputs, distinguish failed/interrupted/unknown runs. Support existing
    lab allocations before automatic scheduler submission. Public CPU example.

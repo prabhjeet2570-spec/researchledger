@@ -28,10 +28,12 @@ def main(argv=None):
     record.add_argument("--gap", action="append", default=[])
     record.add_argument("--parent")
     record.add_argument("--origin", choices=["manual", "agent", "historical"], default="manual")
+    history = commands.add_parser("import", help="Capture explicitly mapped historical evidence")
+    history.add_argument("--manifest", type=Path, required=True, help="Historical evidence JSON")
     commands.add_parser("list", help="List saved experiment records as JSON")
     show = commands.add_parser("show", help="Inspect a saved experiment")
     show.add_argument("id")
-    commands.add_parser("verify", help="Check captured source hashes")
+    commands.add_parser("verify", help="Check captured source and artifact hashes")
     args = parser.parse_args(argv)
     try:
         if args.command == "inspect":
@@ -46,6 +48,8 @@ def main(argv=None):
                 config = json.loads(args.config.read_text()) if args.config else {}
                 output = project.record(args.question, args.source, config, args.gap,
                                         args.parent, args.origin)
+            elif args.command == "import":
+                output = project.import_history(json.loads(args.manifest.read_text()))
             elif args.command == "list":
                 output = project.records()
             elif args.command == "show":
