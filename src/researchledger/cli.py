@@ -8,6 +8,7 @@ from pathlib import Path
 
 from . import __version__
 from .store import LedgerError, Project, canonical
+from .inspection import inspect_project
 
 
 def main(argv=None):
@@ -15,6 +16,9 @@ def main(argv=None):
     parser.add_argument("--version", action="version", version=__version__)
     parser.add_argument("--project", default=".", help="Research directory (default: current)")
     commands = parser.add_subparsers(dest="command", required=True)
+    inspect = commands.add_parser("inspect", help="Read-only directory inventory and capture proposal")
+    inspect.add_argument("--max-entries", type=int, default=1000)
+    inspect.add_argument("--exclude", action="append", default=[], help="Relative-path or name glob")
     init = commands.add_parser("init", help="Initialize a local research ledger")
     init.add_argument("--name", required=True)
     record = commands.add_parser("record", help="Snapshot explicit files; does not execute them")
@@ -30,7 +34,10 @@ def main(argv=None):
     commands.add_parser("verify", help="Check captured source hashes")
     args = parser.parse_args(argv)
     try:
-        if args.command == "init":
+        if args.command == "inspect":
+            output = inspect_project(args.project, max_entries=args.max_entries,
+                                     exclude=args.exclude)
+        elif args.command == "init":
             project = Project.init(args.project, args.name)
             output = {"project": str(project.root), "name": args.name}
         else:

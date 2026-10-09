@@ -5,6 +5,11 @@ reopening, missing/tampered saved bytes, explicit historical gaps, parent links,
 failed-capture cleanup, path restrictions, finite configurations, initialization
 protection, and actual CLI JSON/error exits.
 
+Five inspection tests check read-only operation before initialization, unchanged
+files, extension-based capture proposals without invented relationships, excluded
+directories and symlinks, real Git ignore behavior (including spaces/newlines),
+Git revision capture, bounded traversal, and actual CLI validation/error exits.
+
 Run against an installed package:
 
 ```bash

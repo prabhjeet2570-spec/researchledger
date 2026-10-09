@@ -4,7 +4,10 @@ Each milestone is implemented, verified, then committed with actual timestamps.
 No prepared future code is replayed to manufacture a development history.
 
 1. **Source capture:** package, SDK/CLI, explicit snapshots, parent relationships,
-   provenance gaps, verification. Current milestone.
+   provenance gaps, verification. Implemented.
+   **Directory inspection:** bounded read-only file inventory, Git revision,
+   exclusions and a reviewable capture proposal. Implemented before evidence
+   import; semantic relationships and notebook execution analysis remain future work.
 2. **Evidence import and export:** import mapped historical artifacts without
    inventing execution; portable manifests, evidence tables, missing-file reports.
 3. **Local execution:** execute fixed snapshots/configurations, record environment,
@@ -43,3 +46,9 @@ categories. Corrections must preserve the earlier record.
 Open design work includes recovery after interruption, portable artifact storage,
 execution environment capture, evaluator isolation and reliable job reconciliation.
 Hashes identify bytes; they are neither backups nor proof of execution.
+
+HPC execution is planned after a concrete local executor. A scheduler adapter
+should preserve submitted snapshots/configurations, job identities and resource
+requests, and reconcile scheduler status with logs and artifacts across chat
+disconnects. Cluster scheduler, environments and storage must be inspected before
+implementation. No HPC submission or monitoring exists in the current package.
