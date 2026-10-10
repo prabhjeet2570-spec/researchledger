@@ -40,6 +40,9 @@ def main(argv=None):
     runs.add_argument("--record")
     show_run = commands.add_parser("show-run", help="Read a persisted execution attempt")
     show_run.add_argument("id")
+    export = commands.add_parser("export", help="Bundle saved records and evidence into a ZIP")
+    export.add_argument("--output", type=Path, required=True)
+    export.add_argument("--record", action="append", help="Select records (ancestors included)")
     commands.add_parser("list", help="List saved experiment records as JSON")
     show = commands.add_parser("show", help="Inspect a saved experiment")
     show.add_argument("id")
@@ -69,6 +72,10 @@ def main(argv=None):
                 output = project.runs(args.record)
             elif args.command == "show-run":
                 output = project.get_run(args.id)
+            elif args.command == "export":
+                output = project.export(args.output, args.record)
+                print(canonical(output))
+                return 0 if output["integrity_ok"] else 1
             elif args.command == "list":
                 output = project.records()
             elif args.command == "show":

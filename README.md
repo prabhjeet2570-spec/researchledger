@@ -9,7 +9,7 @@ An agent and a researcher use the same Python or command-line operations.
 
 **Current status: directory inventory, source capture and historical evidence import.** Recording a notebook does not execute
 it, recover its kernel history, or establish that its contents produced a result.
-Local Python execution is available; HPC execution and paper evidence exports are planned
+Local Python execution and portable evidence export are available; HPC execution is planned
 in [the progressive roadmap](docs/roadmap.md).
 
 ## Try the first milestone
@@ -106,6 +106,18 @@ Existing source-only records remain readable. Import does not parse result
 tables, validate scientific claims, deduplicate repeated imports, or execute code.
 
 ## Use from Python
+
+`researchledger export --output evidence.zip` bundles saved experiment records,
+execution records, verified snapshots, logs and outputs. Use repeatable
+`--record exp-<identifier>` to select experiments; parent records are included.
+Python exposes `project.export("evidence.zip", record_ids=[record_id])`.
+The ZIP contains `manifest.json` with hashes/issues, `records.json`, `runs.json`,
+`evidence.csv`, and saved files. Missing/changed evidence is omitted and reported;
+the bundle is still written, but the CLI exits nonzero. Existing destinations are
+never overwritten. Live-run files and older unhashed logs are omitted with an
+explicit gap. Export does not include external inputs, dependencies or working
+directories, and is not a runnable environment or restorable ledger. Review its
+contents before sharing; no redaction is performed.
 
 Run a captured Python script with `researchledger run exp-<identifier>
 --entrypoint experiment.py --output metrics.json --timeout 60`. The script runs

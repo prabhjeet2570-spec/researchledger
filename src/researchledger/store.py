@@ -216,6 +216,11 @@ class Project:
         return execute(self, record_id, entrypoint, outputs=outputs,
                        arguments=arguments, timeout=timeout)
 
+    def export(self, output, record_ids=None):
+        """Write a portable ZIP of saved evidence, including selected ancestors."""
+        from .exporting import export_bundle
+        return export_bundle(self, output, record_ids)
+
     def _save_run(self, payload):
         with self.connect() as db:
             db.execute("CREATE TABLE IF NOT EXISTS runs (id TEXT PRIMARY KEY, payload TEXT NOT NULL)")
