@@ -7,7 +7,7 @@ scripts and Jupyter notebooks. It inventories project directories, captures
 explicit source files and configurations, records provenance gaps, and verifies saved snapshots.
 An agent and a researcher use the same Python or command-line operations.
 
-**Current status: directory inventory, source capture and historical evidence import.** Recording a notebook does not execute
+**Current status: inspection, capture, historical import, local execution, evidence export and versioned research records.** Recording a notebook does not execute
 it, recover its kernel history, or establish that its contents produced a result.
 Local Python execution and portable evidence export are available; HPC execution is planned
 in [the progressive roadmap](docs/roadmap.md).
@@ -107,12 +107,41 @@ tables, validate scientific claims, deduplicate repeated imports, or execute cod
 
 ## Use from Python
 
+`researchledger note --manifest decision.json` appends a decision or interpretation.
+The equivalent SDK operation is `project.add_research_record(manifest)`:
+
+```json
+{
+  "kind": "decision",
+  "statement": "Compare degree five next",
+  "rationale": "The measured degree-three error exceeded the study target",
+  "scope": "Synthetic approximation study on the sampled interval",
+  "evidence": [{"record_id": "exp-<identifier>", "run_id": "run-<identifier>"}],
+  "uncertainties": ["Sampled error does not bound error between sample points"],
+  "origin": "manual"
+}
+```
+
+Statement, rationale and scope are required; evidence references must exist and
+runs must belong to the specified experiment. `kind` is `decision` or
+`interpretation`; `origin` is `manual` or `agent`. A record without evidence is
+allowed and remains an explicit unsupported declaration. No reasoning is inferred.
+To revise a judgment, submit a complete new manifest with `supersedes` set to its
+latest `note-<identifier>`; earlier versions remain unchanged. Each thread has one
+linear revision history, and stale revisions are rejected. `researchledger notes`
+lists all versions; `show-note note-<identifier>` reads one version. Python exposes
+`project.research_records()` and `project.get_research_record(identifier)`.
+Judgments remain `unverified_declaration`, even when they cite successful runs.
+Selected exports include relevant whole revision threads and their referenced
+experiments, in addition to experiment ancestors. Full exports include all judgments.
+
+
 `researchledger export --output evidence.zip` bundles saved experiment records,
 execution records, verified snapshots, logs and outputs. Use repeatable
 `--record exp-<identifier>` to select experiments; parent records are included.
 Python exposes `project.export("evidence.zip", record_ids=[record_id])`.
 The ZIP contains `manifest.json` with hashes/issues, `records.json`, `runs.json`,
-`evidence.csv`, and saved files. Missing/changed evidence is omitted and reported;
+`research_records.json`, `evidence.csv`, and saved files. Missing/changed evidence is omitted and reported;
 the bundle is still written, but the CLI exits nonzero. Existing destinations are
 never overwritten. Live-run files and older unhashed logs are omitted with an
 explicit gap. Export does not include external inputs, dependencies or working

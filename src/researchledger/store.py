@@ -221,6 +221,22 @@ class Project:
         from .exporting import export_bundle
         return export_bundle(self, output, record_ids)
 
+    def add_research_record(self, manifest):
+        """Append an explicit decision/interpretation or a revision of one."""
+        from .research_records import add_record
+        return add_record(self, manifest)
+
+    def research_records(self):
+        """Read all research record versions without changing storage."""
+        from .research_records import list_records
+        return list_records(self)
+
+    def get_research_record(self, identifier):
+        for record in self.research_records():
+            if record["id"] == identifier:
+                return record
+        raise LedgerError(f"Unknown research record: {identifier}")
+
     def _save_run(self, payload):
         with self.connect() as db:
             db.execute("CREATE TABLE IF NOT EXISTS runs (id TEXT PRIMARY KEY, payload TEXT NOT NULL)")

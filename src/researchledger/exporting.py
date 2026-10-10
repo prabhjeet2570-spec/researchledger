@@ -23,13 +23,26 @@ def export_bundle(project, output, record_ids=None):
     if not selected:
         raise LedgerError("Export requires at least one experiment record")
     records = {record["id"]: record for record in selected}
-    # Include ancestors so a selected follow-up does not lose its context.
-    pending = list(records.values())
-    while pending:
-        parent = pending.pop().get("parent")
-        if parent and parent not in records:
-            records[parent] = project.get(parent)
-            pending.append(records[parent])
+    def include_ancestors():
+        pending = list(records.values())
+        while pending:
+            parent = pending.pop().get("parent")
+            if parent and parent not in records:
+                records[parent] = project.get(parent)
+                pending.append(records[parent])
+
+    include_ancestors()
+    all_notes = project.research_records()
+    threads = {note["thread_id"] for note in all_notes
+               if any(ref["record_id"] in records for ref in note["evidence"])}
+    notes = [note for note in all_notes if record_ids is None or note["thread_id"] in threads]
+    # Include whole selected revision threads and their evidence to avoid dangling links.
+    for note in notes:
+        for reference in note["evidence"]:
+            identifier = reference["record_id"]
+            if identifier not in records:
+                records[identifier] = project.get(identifier)
+    include_ancestors()
     records = sorted(records.values(), key=lambda record: record["id"])
     runs = [run for run in project.runs() if run["record_id"] in {r["id"] for r in records}]
     for item in [*records, *runs]:
@@ -79,7 +92,7 @@ def export_bundle(project, output, record_ids=None):
             for item in run["artifacts"]:
                 capture(run["id"], item, base / "artifacts", Path("runs") / run["id"] / "artifacts")
 
-        for name, value in [("records.json", records), ("runs.json", runs)]:
+        for name, value in [("records.json", records), ("runs.json", runs), ("research_records.json", notes)]:
             (stage / name).write_text(canonical(value) + "\n", encoding="utf-8")
         with (stage / "evidence.csv").open("w", newline="", encoding="utf-8") as table:
             writer = csv.writer(table)
@@ -90,16 +103,17 @@ def export_bundle(project, output, record_ids=None):
                     writer.writerow([record["id"], record["question"], record["origin"],
                                      run["id"] if run else "", run["status"] if run else "not_observed",
                                      canonical(record["gaps"] + (run["gaps"] if run else []))])
-        for name in ["records.json", "runs.json", "evidence.csv"]:
+        for name in ["records.json", "runs.json", "research_records.json", "evidence.csv"]:
             files.append({"path": name, **hash_file(stage / name)})
         manifest = {
-            "schema_version": 1, "exported_at": now(),
+            "schema_version": 2, "exported_at": now(),
             "record_ids": [r["id"] for r in records], "run_ids": [r["id"] for r in runs],
+            "research_record_ids": [note["id"] for note in notes],
             "files": sorted(files, key=lambda item: item["path"]),
             "integrity_ok": not issues, "issues": issues,
             "limitations": [
                 "Hashes check bytes, not scientific correctness or authenticity.",
-                "Historical claims remain unverified declarations.",
+                "Historical claims and research judgments remain unverified declarations.",
                 "Dependencies, external datasets/checkpoints and working run directories are not bundled.",
                 "Records preserve declared gaps; integrity_ok does not mean provenance is complete.",
                 "This is an evidence archive, not a restorable ledger or runnable environment.",
@@ -118,4 +132,5 @@ def export_bundle(project, output, record_ids=None):
         except FileExistsError as exc:
             raise LedgerError("Export destination appeared during export; overwriting refused") from exc
     return {"output": str(output), "integrity_ok": not issues, "issues": issues,
-            "records_exported": len(records), "runs_exported": len(runs)}
+            "records_exported": len(records), "runs_exported": len(runs),
+            "research_records_exported": len(notes)}

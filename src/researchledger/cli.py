@@ -43,6 +43,11 @@ def main(argv=None):
     export = commands.add_parser("export", help="Bundle saved records and evidence into a ZIP")
     export.add_argument("--output", type=Path, required=True)
     export.add_argument("--record", action="append", help="Select records (ancestors included)")
+    note = commands.add_parser("note", help="Append a decision, interpretation or revision")
+    note.add_argument("--manifest", type=Path, required=True)
+    commands.add_parser("notes", help="List all research record versions")
+    show_note = commands.add_parser("show-note", help="Read an immutable research record version")
+    show_note.add_argument("id")
     commands.add_parser("list", help="List saved experiment records as JSON")
     show = commands.add_parser("show", help="Inspect a saved experiment")
     show.add_argument("id")
@@ -76,6 +81,12 @@ def main(argv=None):
                 output = project.export(args.output, args.record)
                 print(canonical(output))
                 return 0 if output["integrity_ok"] else 1
+            elif args.command == "note":
+                output = project.add_research_record(json.loads(args.manifest.read_text()))
+            elif args.command == "notes":
+                output = project.research_records()
+            elif args.command == "show-note":
+                output = project.get_research_record(args.id)
             elif args.command == "list":
                 output = project.records()
             elif args.command == "show":
