@@ -43,7 +43,7 @@ def main(argv=None):
     commands.add_parser("list", help="List saved experiment records as JSON")
     show = commands.add_parser("show", help="Inspect a saved experiment")
     show.add_argument("id")
-    commands.add_parser("verify", help="Check captured source and artifact hashes")
+    commands.add_parser("verify", help="Check snapshots, run logs and output hashes")
     args = parser.parse_args(argv)
     try:
         if args.command == "inspect":
@@ -74,7 +74,7 @@ def main(argv=None):
             elif args.command == "show":
                 output = project.get(args.id)
             else:
-                errors = project.verify()
+                errors = project.verify() + project.verify_runs()
                 print(canonical({"ok": not errors, "errors": errors}))
                 return 1 if errors else 0
         print(canonical(output))

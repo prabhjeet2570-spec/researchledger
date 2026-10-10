@@ -120,7 +120,12 @@ outputs is marked `outputs_incomplete`. Failures and timeouts retain available
 outputs and logs. Notebook execution and crash reconciliation are not implemented.
 Execution inherits your environment and is **not a sandbox**. Run trusted code
 only; neither exit status nor output hashes establish scientific correctness.
-`verify` currently checks experiment snapshots, not run logs/output snapshots.
+`verify` checks experiment snapshots plus finalized run logs/output snapshots.
+Main-thread execution handles SIGINT/SIGTERM by stopping the process group and
+recording the interruption. Abrupt crashes, SIGKILL, and worker-thread signals
+can leave unresolved runs, which verification flags without guessing completion.
+Older runs without log hashes report that verification gap; hashes are not
+retroactively treated as if they were captured at execution time.
 
 ```python
 from researchledger import Project

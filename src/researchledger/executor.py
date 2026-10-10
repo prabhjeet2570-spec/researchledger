@@ -1,6 +1,7 @@
 """Synchronous local Python execution. Working copies are not a code sandbox."""
 
 import hashlib
+from contextlib import contextmanager
 import math
 import os
 from pathlib import Path
@@ -8,9 +9,41 @@ import platform
 import signal
 import subprocess
 import sys
+import threading
 import uuid
 
 from .store import LedgerError, canonical, now, require_text
+
+
+class RunInterrupted(KeyboardInterrupt):
+    def __init__(self, signum):
+        self.signum = signum
+        super().__init__(f"Execution interrupted by signal {signum}")
+
+
+@contextmanager
+def interruption_signals():
+    """Restore caller signal handlers after main-thread execution."""
+    previous = {}
+    if threading.current_thread() is threading.main_thread():
+        def interrupt(signum, frame):
+            raise RunInterrupted(signum)
+        for signum in (signal.SIGINT, signal.SIGTERM):
+            previous[signum] = signal.signal(signum, interrupt)
+    try:
+        yield
+    finally:
+        for signum, handler in previous.items():
+            signal.signal(signum, handler)
+
+
+def hash_file(path):
+    digest, size = hashlib.sha256(), 0
+    with path.open("rb") as reader:
+        while chunk := reader.read(1024 * 1024):
+            digest.update(chunk)
+            size += len(chunk)
+    return {"size_bytes": size, "sha256": digest.hexdigest()}
 
 
 def relative_file(name):
@@ -78,7 +111,7 @@ def execute(project, record_id, entrypoint, *, outputs=(), arguments=(), timeout
         "entrypoint": entrypoint, "arguments": arguments, "timeout_seconds": timeout,
         "config": record["config"], "source_manifest": record["sources"],
         "declared_outputs": outputs, "artifacts": [], "output_errors": [],
-        "returncode": None, "pid": None, "error": None,
+        "returncode": None, "pid": None, "error": None, "interruption_signal": None,
         "environment": {"python_executable": sys.executable,
                         "python_version": sys.version, "platform": platform.platform()},
         "logs": {"stdout": "stdout.log", "stderr": "stderr.log"},
@@ -103,7 +136,7 @@ def execute(project, record_id, entrypoint, *, outputs=(), arguments=(), timeout
         environment["RESEARCHLEDGER_RUN_ID"] = identifier
         command = [sys.executable, "-u", entrypoint, *arguments]
         payload["command"] = command
-        with (directory / "stdout.log").open("xb") as stdout, (directory / "stderr.log").open("xb") as stderr:
+        with interruption_signals(), (directory / "stdout.log").open("xb") as stdout, (directory / "stderr.log").open("xb") as stderr:
             payload["status"] = "launching"
             project._save_run(payload)
             process = subprocess.Popen(command, cwd=work, env=environment,
@@ -117,9 +150,10 @@ def execute(project, record_id, entrypoint, *, outputs=(), arguments=(), timeout
             except subprocess.TimeoutExpired:
                 stop_process(process)
                 payload["status"] = "timed_out"
-            except KeyboardInterrupt:
+            except KeyboardInterrupt as exc:
                 stop_process(process)
                 payload["status"] = "interrupted"
+                payload["interruption_signal"] = getattr(exc, "signum", signal.SIGINT)
             payload["returncode"] = process.returncode
     except (Exception, KeyboardInterrupt) as exc:
         if process is not None:
@@ -127,6 +161,10 @@ def execute(project, record_id, entrypoint, *, outputs=(), arguments=(), timeout
         payload["status"] = ("interrupted" if isinstance(exc, KeyboardInterrupt) else
                              "preparation_failed" if process is None else "executor_failed")
         payload["error"] = str(exc)
+        if isinstance(exc, KeyboardInterrupt):
+            payload["interruption_signal"] = getattr(exc, "signum", signal.SIGINT)
+        if process is not None:
+            payload["returncode"] = process.returncode
 
     # Preserve available declared outputs even after failure or timeout.
     for name in outputs:
@@ -143,6 +181,11 @@ def execute(project, record_id, entrypoint, *, outputs=(), arguments=(), timeout
             payload["output_errors"].append({"path": name, "problem": str(exc)})
     if payload["status"] == "succeeded" and payload["output_errors"]:
         payload["status"] = "outputs_incomplete"
+    payload["log_manifest"] = []
+    for name in payload["logs"].values():
+        path = directory / name
+        if path.is_file():
+            payload["log_manifest"].append({"path": name, **hash_file(path)})
     payload["finished_at"] = now()
     project._save_run(payload)
     return payload

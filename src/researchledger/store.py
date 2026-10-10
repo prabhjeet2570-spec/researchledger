@@ -237,6 +237,36 @@ class Project:
                 return run
         raise LedgerError(f"Unknown run: {identifier}")
 
+    def verify_runs(self):
+        """Verify finalized log/output bytes; flag unresolved execution states."""
+        from .executor import hash_file, relative_file
+        errors = []
+        for run in self.runs():
+            directory = self.directory / "runs" / run["id"]
+            if run["finished_at"] is None:
+                errors.append({"id": run["id"], "path": None, "problem": "run_not_finalized"})
+                continue
+            if "log_manifest" not in run:
+                errors.append({"id": run["id"], "path": None, "problem": "log_manifest_unavailable"})
+            items = [(item, directory) for item in run.get("log_manifest", [])]
+            items += [(item, directory / "artifacts") for item in run["artifacts"]]
+            for item, base in items:
+                try:
+                    name = relative_file(item["path"])
+                    path = base / name
+                    if path.is_symlink() or not path.resolve().is_relative_to(base.resolve()):
+                        raise LedgerError("Saved file resolves outside its storage")
+                    if not path.is_file():
+                        problem = "missing"
+                    else:
+                        saved = hash_file(path)
+                        problem = "changed" if any(saved[k] != item[k] for k in saved) else None
+                    if problem:
+                        errors.append({"id": run["id"], "path": name, "problem": problem})
+                except (OSError, LedgerError) as exc:
+                    errors.append({"id": run["id"], "path": item["path"], "problem": str(exc)})
+        return errors
+
     def verify(self):
         """Verify saved source/artifact bytes. Does not check scientific correctness."""
         errors = []
