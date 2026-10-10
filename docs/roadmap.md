@@ -11,10 +11,15 @@ No prepared future code is replayed to manufacture a development history.
 2. **Evidence import and export:** import mapped historical artifacts without
    inventing execution; portable manifests, evidence tables, missing-file reports.
    Explicit historical imports with artifact snapshots, declared claims and
-   provenance gaps are implemented. Portable evidence export remains next.
+   provenance gaps are implemented. Portable ZIP exports include verified saved
+   bytes, metadata, evidence tables and explicit missing/changed-file reports.
 3. **Local execution:** execute fixed snapshots/configurations, record environment,
    logs and outputs, distinguish failed/interrupted/unknown runs. Support existing
-   lab allocations before automatic scheduler submission. Public CPU example.
+   lab allocations before automatic scheduler submission. Local Python execution,
+   logs/output capture, failure/timeout/main-thread interruption handling and the
+   synthetic numerical CPU example are implemented. Basic interpreter/platform
+   metadata is captured; complete dependencies/environment restoration and abrupt
+   crash reconciliation remain future work.
 4. **Campaign constraints:** finite authorized experiment plans, scope versions,
    resource reservation, idempotency and crash reconciliation. No claim that
    arbitrary agent code is sandboxed or scientifically correct.
@@ -54,3 +59,33 @@ should preserve submitted snapshots/configurations, job identities and resource
 requests, and reconcile scheduler status with logs and artifacts across chat
 disconnects. Cluster scheduler, environments and storage must be inspected before
 implementation. No HPC submission or monitoring exists in the current package.
+
+## First usable workflow acceptance
+
+The initial SDK/CLI workflow is implemented and locally validated by 42 tests
+against source and installed package on Python 3.12.13/macOS; see
+[validation](validation.md). The public example imports explicitly synthetic
+historical-style evidence with gaps, runs a captured numerical CPU experiment,
+preserves rejected-input failure evidence, revises a decision and exports saved
+bytes with checked hashes. This is initial workflow acceptance, not a production
+release, PyPI publication or scientific validation of a real study.
+
+Progressive publication pauses after this acceptance. Remaining work includes:
+
+- Checkpoint capture/resume and explicit compatible-output reuse to avoid wasted
+  compute. Experiment code must save/restore its own state; resume attempts should
+  verify compatibility and retain checkpoint/run lineage. Fresh replication must
+  remain distinguishable from cached evidence.
+- Reproducibility manifests for input versions, seeds and dependency/environment
+  details, with explicit gaps and no guarantee of identical numerical outcomes.
+- A general execution backend interface and scheduler adapters configured for
+  different clusters, with durable job identities and duplicate-submission/crash
+  reconciliation. Real cluster access is needed to validate a scheduler backend.
+- Typed campaign scope/resource controls and independent ActionProof integration
+  checks of submitted jobs and observed records. Neither is implemented.
+- Richer project relationship proposals and artifact-linked documentation views.
+- GitHub CI after workflow authorization, broader platform/version validation and
+  package distribution. The saved workflow is not published or run.
+
+The current ZIP is an evidence archive, not a restorable ledger or runnable
+compute environment. Local execution is trusted Python execution, not isolation.
