@@ -45,6 +45,12 @@ def main(argv=None):
     run.add_argument("--reuse-from", help="Explicit successful prior run; launches no process")
     run.add_argument("--reuse-reason", help="Why saved evidence is suitable for this request")
     run.add_argument("--reuse-context", type=Path, help="JSON identities, seed and determinism declaration")
+    run.add_argument("--checkpoint-revision", help="Explicit saved cp-ID to resume")
+    checkpoint = commands.add_parser("checkpoint", help="Save a declared live checkpoint revision")
+    checkpoint.add_argument("id", help="Active run ID")
+    checkpoint.add_argument("--path", required=True)
+    checkpoints = commands.add_parser("checkpoints", help="List immutable checkpoint revisions")
+    checkpoints.add_argument("id", help="Run ID")
     runs = commands.add_parser("runs", help="List local execution attempts")
     runs.add_argument("--record")
     show_run = commands.add_parser("show-run", help="Read a persisted execution attempt")
@@ -84,9 +90,14 @@ def main(argv=None):
                                          checkpoint=args.checkpoint, reuse_from=args.reuse_from,
                                          reuse_reason=args.reuse_reason,
                                          reuse_context=json.loads(args.reuse_context.read_text()) if args.reuse_context else None,
-                                         dependencies=args.dependency, backend=args.backend)
+                                         dependencies=args.dependency, backend=args.backend,
+                                         checkpoint_revision=args.checkpoint_revision)
                 print(canonical(output))
                 return 0 if output["status"] in {"succeeded", "reused"} else 1
+            elif args.command == "checkpoint":
+                output = project.save_checkpoint(args.id, args.path)
+            elif args.command == "checkpoints":
+                output = project.checkpoints(args.id)
             elif args.command == "runs":
                 output = project.runs(args.record)
             elif args.command == "show-run":

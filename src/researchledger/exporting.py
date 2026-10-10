@@ -80,6 +80,10 @@ def export_bundle(project, output, record_ids=None):
             base = project.directory / "snapshots" / record["id"]
             for item in record["sources"] + record.get("inputs", []) + record.get("artifacts", []):
                 capture(record["id"], item, base, Path("snapshots") / record["id"])
+        checkpoints = [cp for run in runs for cp in project.checkpoints(run["id"])]
+        for cp in checkpoints:
+            base = project.directory / "runs" / cp["run_id"] / "checkpoints" / cp["id"]
+            capture(cp["run_id"], cp["artifact"], base, Path("runs") / cp["run_id"] / "checkpoints" / cp["id"])
         for run in runs:
             if run["finished_at"] is None:
                 issues.append({"id": run["id"], "path": None, "problem": "run_not_finalized; live files omitted"})
@@ -94,7 +98,7 @@ def export_bundle(project, output, record_ids=None):
             for item in run["artifacts"]:
                 capture(run["id"], item, base / "artifacts", Path("runs") / run["id"] / "artifacts")
 
-        for name, value in [("records.json", records), ("runs.json", runs), ("research_records.json", notes)]:
+        for name, value in [("records.json", records), ("runs.json", runs), ("research_records.json", notes), ("checkpoints.json", checkpoints)]:
             (stage / name).write_text(canonical(value) + "\n", encoding="utf-8")
         with (stage / "evidence.csv").open("w", newline="", encoding="utf-8") as table:
             writer = csv.writer(table)
@@ -105,7 +109,7 @@ def export_bundle(project, output, record_ids=None):
                     writer.writerow([record["id"], record["question"], record["origin"],
                                      run["id"] if run else "", run["status"] if run else "not_observed",
                                      canonical(record["gaps"] + (run["gaps"] if run else []))])
-        for name in ["records.json", "runs.json", "research_records.json", "evidence.csv"]:
+        for name in ["records.json", "runs.json", "research_records.json", "checkpoints.json", "evidence.csv"]:
             files.append({"path": name, **hash_file(stage / name)})
         manifest = {
             "schema_version": 2, "exported_at": now(),

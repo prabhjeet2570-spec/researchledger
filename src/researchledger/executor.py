@@ -115,9 +115,11 @@ def declared_context(value):
 
 def execute(project, record_id, entrypoint, *, outputs=(), arguments=(), timeout=3600,
             checkpoints=(), resume_from=None, checkpoint=None, reuse_from=None,
-            reuse_reason=None, reuse_context=None, dependencies=(), backend="local-python"):
+            reuse_reason=None, reuse_context=None, dependencies=(), backend="local-python", checkpoint_revision=None):
     record = project.get(record_id)
     backend, backend_identity = resolve_backend(backend)
+    if checkpoint_revision is not None and resume_from is None:
+        raise LedgerError("Checkpoint revision requires a resume request")
     reuse_context = declared_context(reuse_context)
     observed_dependencies = dependency_versions(dependencies)
     if reuse_from is None and reuse_reason is not None:
@@ -178,10 +180,18 @@ def execute(project, record_id, entrypoint, *, outputs=(), arguments=(), timeout
             raise LedgerError("Resume requires identical record, entrypoint, arguments, inputs and dependency/runtime identities")
         if checkpoint not in prior.get("declared_checkpoints", []):
             raise LedgerError("Checkpoint was not explicitly declared by the prior run")
-        saved = next((a for a in prior["artifacts"] if a["path"] == checkpoint), None)
+        if checkpoint_revision is None:
+            saved = next((a for a in prior["artifacts"] if a["path"] == checkpoint), None)
+        else:
+            revision = next((cp for cp in project.checkpoints(resume_from) if cp["id"] == checkpoint_revision), None)
+            if revision is None or revision["artifact"]["path"] != checkpoint:
+                raise LedgerError("Checkpoint revision is unknown or does not match the requested path")
+            saved = revision["artifact"]
         if saved is None:
             raise LedgerError("Prior checkpoint was not captured")
         resume = {"run_id": resume_from, "checkpoint": dict(saved)}
+        if checkpoint_revision is not None:
+            resume["revision_id"] = checkpoint_revision
 
     reused = None
     if reuse_from is not None:
@@ -277,6 +287,8 @@ def execute(project, record_id, entrypoint, *, outputs=(), arguments=(), timeout
         if resume is not None:
             name = resume["checkpoint"]["path"]
             base = project.directory / "runs" / resume["run_id"] / "artifacts"
+            if "revision_id" in resume:
+                base = project.directory / "runs" / resume["run_id"] / "checkpoints" / resume["revision_id"]
             original = base / name
             if any((base / Path(*Path(name).parts[:i])).is_symlink()
                    for i in range(1, len(Path(name).parts) + 1)):
@@ -291,6 +303,7 @@ def execute(project, record_id, entrypoint, *, outputs=(), arguments=(), timeout
             copy_bytes(directory / "inputs" / name, target)
             environment["RESEARCHLEDGER_RESUME"] = str(target)
             payload["gaps"].append("Resume checks saved bytes and basic runtime identity; external state and checkpoint semantics are not verified")
+        environment["RESEARCHLEDGER_PROJECT"] = str(project.root)
         environment["RESEARCHLEDGER_CONFIG"] = str(work / reserved)
         environment["RESEARCHLEDGER_RUN_ID"] = identifier
         command = [sys.executable, "-u", entrypoint, *arguments]

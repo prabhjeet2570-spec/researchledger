@@ -220,13 +220,23 @@ class Project:
 
     def execute(self, record_id, entrypoint, *, outputs=(), arguments=(), timeout=3600,
                 checkpoints=(), resume_from=None, checkpoint=None, reuse_from=None,
-                reuse_reason=None, reuse_context=None, dependencies=(), backend="local-python"):
+                reuse_reason=None, reuse_context=None, dependencies=(), backend="local-python", checkpoint_revision=None):
         """Execute a copied source snapshot locally; each attempt gets a run ID."""
         from .executor import execute
         return execute(self, record_id, entrypoint, outputs=outputs,
                        arguments=arguments, timeout=timeout, checkpoints=checkpoints,
                        resume_from=resume_from, checkpoint=checkpoint, reuse_from=reuse_from,
-                       reuse_reason=reuse_reason, reuse_context=reuse_context, dependencies=dependencies, backend=backend)
+                       reuse_reason=reuse_reason, reuse_context=reuse_context, dependencies=dependencies, backend=backend, checkpoint_revision=checkpoint_revision)
+
+    def save_checkpoint(self, run_id, path):
+        """Append an immutable revision of an explicitly declared live checkpoint."""
+        from .checkpoints import save_checkpoint
+        return save_checkpoint(self, run_id, path)
+
+    def checkpoints(self, run_id):
+        """Read saved checkpoint revisions, including unresolved attempts."""
+        from .checkpoints import list_checkpoints
+        return list_checkpoints(self, run_id)
 
     def export(self, output, record_ids=None):
         """Write a portable ZIP of saved evidence, including selected ancestors."""
@@ -278,12 +288,12 @@ class Project:
             directory = self.directory / "runs" / run["id"]
             if run["finished_at"] is None:
                 errors.append({"id": run["id"], "path": None, "problem": "run_not_finalized"})
-                continue
-            if "log_manifest" not in run:
+            if "log_manifest" not in run and run["finished_at"] is not None:
                 errors.append({"id": run["id"], "path": None, "problem": "log_manifest_unavailable"})
-            items = [(item, directory) for item in run.get("log_manifest", [])]
+            items = [] if run["finished_at"] is None else [(item, directory) for item in run.get("log_manifest", [])]
             items += [(item, directory / "artifacts") for item in run["artifacts"]]
             items += [(item, directory / "inputs") for item in run.get("input_manifest", [])]
+            items += [(cp["artifact"], directory / "checkpoints" / cp["id"]) for cp in self.checkpoints(run["id"])]
             for item, base in items:
                 try:
                     name = relative_file(item["path"])

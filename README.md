@@ -281,8 +281,38 @@ identity. It creates a new attempt linked to the
 prior run, saves the checkpoint as a verified input and includes it in exports.
 This does not verify unselected dependencies, uncaptured external inputs or
 checkpoint semantics.
-Live checkpoint synchronization and recovery after SIGKILL or executor crashes
-remain future work; only finalized attempts can be resumed.
+Explicit live checkpoint saves are available as immutable revisions. Automatic
+checkpoint polling and crash reconciliation remain future work; only finalized
+attempts can be resumed.
+
+Save completed checkpoints during execution with the same SDK or CLI:
+
+```python
+import os
+from researchledger import Project
+
+project = Project.open(os.environ["RESEARCHLEDGER_PROJECT"])
+revision = project.save_checkpoint(os.environ["RESEARCHLEDGER_RUN_ID"], "state.json")
+```
+
+Write `state.json` atomically before this call and declare it with
+`--checkpoint-output state.json`. Alternatively, an external observer can use
+`researchledger checkpoint run-<identifier> --path state.json` while the run is
+active. `researchledger checkpoints run-<identifier>` lists immutable revisions.
+The SDK copies and hashes the completed file, rejects changes observed during
+capture, flushes saved bytes and commits an append-only revision independently
+of mutable run status. It does not validate whether the file contains complete
+model/optimizer/random state. Uncommitted saves and machine/storage failures may
+still lose progress; this is not a backup service.
+
+Resume an explicit saved revision with the usual `--resume-from` and `--checkpoint`
+plus `--checkpoint-revision cp-<identifier>`; Python accepts `checkpoint_revision`.
+Saved revisions survive later checkpoint overwrites and coordinator SIGKILL.
+Verification checks their hashes even for unresolved runs, and export includes
+`checkpoints.json` and committed checkpoint bytes while reporting unresolved
+execution. Live logs and work files remain omitted. An unresolved run cannot yet
+be resumed: its process may still be active, and reconciliation remains future
+work. No automatic duplicate execution or unsafe PID attachment is performed.
 
 Reuse completed output evidence explicitly, without launching another process:
 
