@@ -70,10 +70,14 @@ preserves rejected-input failure evidence, revises a decision and exports saved
 bytes with checked hashes. This is initial workflow acceptance, not a production
 release, PyPI publication or scientific validation of a real study.
 
-Progressive publication pauses after this acceptance. Remaining work includes:
+The user has authorized continued development toward the full SDK/CLI package.
+Checkpoint resume for finalized local attempts is implemented: declared saved
+checkpoints become verified inputs to new linked attempts. Experiment code owns
+state restoration. Live checkpoint synchronization and abrupt-crash recovery
+remain open. Remaining work includes:
 
-- Checkpoint capture/resume and explicit compatible-output reuse to avoid wasted
-  compute. Experiment code must save/restore its own state; resume attempts should
+- Durable live checkpoint capture/recovery and explicit compatible-output reuse
+  to avoid wasted compute. Experiment code must save/restore its own state; resume attempts should
   verify compatibility and retain checkpoint/run lineage. Fresh replication must
   remain distinguishable from cached evidence.
 - Reproducibility manifests for input versions, seeds and dependency/environment

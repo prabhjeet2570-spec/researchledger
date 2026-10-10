@@ -31,8 +31,8 @@ retains logs and a request artifact when zero intervals is rejected, revises an
 evidence-linked decision, verifies saved bytes, and writes `evidence.zip` plus a
 readable `summary.json`. Results are computed during your run, not downloaded or
 prebuilt. The example uses the same SDK operations exposed by the CLI; no agent
-model API, GPU or cluster is required. Checkpoint resume and automatic result
-reuse are not implemented yet.
+model API, GPU or cluster is required. Explicit checkpoint resume is available for finalized local runs. Automatic
+result reuse is not implemented yet.
 
 ## Try the first milestone
 
@@ -183,12 +183,35 @@ outputs is marked `outputs_incomplete`. Failures and timeouts retain available
 outputs and logs. Notebook execution and crash reconciliation are not implemented.
 Execution inherits your environment and is **not a sandbox**. Run trusted code
 only; neither exit status nor output hashes establish scientific correctness.
-`verify` checks experiment snapshots plus finalized run logs/output snapshots.
+`verify` checks experiment snapshots plus finalized run logs, outputs and resume inputs.
 Main-thread execution handles SIGINT/SIGTERM by stopping the process group and
 recording the interruption. Abrupt crashes, SIGKILL, and worker-thread signals
 can leave unresolved runs, which verification flags without guessing completion.
 Older runs without log hashes report that verification gap; hashes are not
 retroactively treated as if they were captured at execution time.
+
+Resume a finalized attempt using an explicitly declared checkpoint:
+
+```sh
+researchledger run exp-<identifier> --entrypoint experiment.py --checkpoint-output state.json --timeout 60
+researchledger run exp-<identifier> --entrypoint experiment.py --checkpoint-output state.json --resume-from run-<identifier> --checkpoint state.json --timeout 60
+```
+
+In Python, pass `checkpoints=["state.json"]` to `project.execute`; to resume, also
+pass `resume_from=prior_run["id"]` and `checkpoint="state.json"`. The script reads
+its saved state from the path in `RESEARCHLEDGER_RESUME`, which is absent on fresh
+runs. It must implement checkpoint saving and restoration itself, including any
+model, optimizer, random generator and progress state its algorithm requires.
+Write checkpoints atomically so interruption cannot leave a partial file.
+
+The SDK captures declared checkpoint outputs when an attempt finalizes, including
+handled failure, timeout or interruption. Resume verifies saved checkpoint bytes
+and requires the same experiment snapshot, configuration, entrypoint, arguments
+and basic interpreter/platform identity. It creates a new attempt linked to the
+prior run, saves the checkpoint as a verified input and includes it in exports.
+This does not verify dependency versions, external inputs or checkpoint semantics.
+Live checkpoint synchronization and recovery after SIGKILL or executor crashes
+remain future work; only finalized attempts can be resumed.
 
 ```python
 from researchledger import Project

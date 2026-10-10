@@ -81,12 +81,22 @@ def stop_process(process):
     process.wait()
 
 
-def execute(project, record_id, entrypoint, *, outputs=(), arguments=(), timeout=3600):
+def execute(project, record_id, entrypoint, *, outputs=(), arguments=(), timeout=3600, checkpoints=(), resume_from=None, checkpoint=None):
     record = project.get(record_id)
+    if isinstance(checkpoints, str):
+        raise LedgerError("Checkpoints must be a sequence of output paths")
+    checkpoints = [relative_file(p) for p in checkpoints]
+    if len(set(checkpoints)) != len(checkpoints):
+        raise LedgerError("Duplicate checkpoint paths")
+    if (resume_from is None) != (checkpoint is None):
+        raise LedgerError("Resume requires both a prior run and checkpoint path")
     entrypoint = relative_file(entrypoint)
     if isinstance(outputs, str) or isinstance(arguments, str):
         raise LedgerError("Outputs and arguments must be sequences, not strings")
     outputs = [relative_file(p) for p in outputs]
+    if len(set(outputs)) != len(outputs):
+        raise LedgerError("Duplicate output paths")
+    outputs = list(dict.fromkeys([*outputs, *checkpoints]))
     arguments = list(arguments)
     if any(not isinstance(a, str) or "\0" in a for a in arguments):
         raise LedgerError("Arguments must be strings without NUL characters")
@@ -96,10 +106,33 @@ def execute(project, record_id, entrypoint, *, outputs=(), arguments=(), timeout
     if entrypoint not in sources or Path(entrypoint).suffix != ".py":
         raise LedgerError("Entrypoint must be a captured Python source file")
     reserved = ".researchledger-config.json"
+    resume_directory = ".researchledger-resume"
+    if any(Path(p).parts[0] == resume_directory for p in [*sources, *outputs]):
+        raise LedgerError("Resume input directory is reserved")
     if any(Path(p).parts[0] == reserved for p in [*sources, *outputs]):
         raise LedgerError("Generated configuration path is reserved")
     if len(set(outputs)) != len(outputs) or set(outputs) & sources.keys():
         raise LedgerError("Output paths must be unique and distinct from captured sources")
+
+    environment_identity = {"python_executable": sys.executable,
+                            "python_version": sys.version, "platform": platform.platform()}
+    resume = None
+    if resume_from is not None:
+        prior = project.get_run(resume_from)
+        checkpoint = relative_file(checkpoint)
+        if prior["finished_at"] is None:
+            raise LedgerError("Cannot resume from an unresolved run")
+        if (prior["record_id"] != record_id or prior["entrypoint"] != entrypoint
+                or prior["arguments"] != arguments or prior["config"] != record["config"]
+                or prior["source_manifest"] != record["sources"]
+                or prior["environment"] != environment_identity):
+            raise LedgerError("Resume requires identical record, entrypoint, arguments and interpreter/platform")
+        if checkpoint not in prior.get("declared_checkpoints", []):
+            raise LedgerError("Checkpoint was not explicitly declared by the prior run")
+        saved = next((a for a in prior["artifacts"] if a["path"] == checkpoint), None)
+        if saved is None:
+            raise LedgerError("Prior checkpoint was not captured")
+        resume = {"run_id": resume_from, "checkpoint": dict(saved)}
 
     identifier = "run-" + uuid.uuid4().hex
     directory = project.directory / "runs" / identifier
@@ -110,10 +143,10 @@ def execute(project, record_id, entrypoint, *, outputs=(), arguments=(), timeout
         "status": "preparing", "started_at": None, "finished_at": None,
         "entrypoint": entrypoint, "arguments": arguments, "timeout_seconds": timeout,
         "config": record["config"], "source_manifest": record["sources"],
-        "declared_outputs": outputs, "artifacts": [], "output_errors": [],
+        "declared_outputs": outputs, "declared_checkpoints": checkpoints,
+        "resume_from": resume, "input_manifest": [], "artifacts": [], "output_errors": [],
         "returncode": None, "pid": None, "error": None, "interruption_signal": None,
-        "environment": {"python_executable": sys.executable,
-                        "python_version": sys.version, "platform": platform.platform()},
+        "environment": environment_identity,
         "logs": {"stdout": "stdout.log", "stderr": "stderr.log"},
         "gaps": ["Dependencies and external inputs are not snapshotted",
                  "Process exit and captured outputs do not establish scientific correctness",
@@ -132,6 +165,24 @@ def execute(project, record_id, entrypoint, *, outputs=(), arguments=(), timeout
                 raise LedgerError(f"Captured source failed hash verification: {name}")
         (work / reserved).write_text(canonical(record["config"]) + "\n", encoding="utf-8")
         environment = os.environ.copy()
+        environment.pop("RESEARCHLEDGER_RESUME", None)
+        if resume is not None:
+            name = resume["checkpoint"]["path"]
+            base = project.directory / "runs" / resume["run_id"] / "artifacts"
+            original = base / name
+            if any((base / Path(*Path(name).parts[:i])).is_symlink()
+                   for i in range(1, len(Path(name).parts) + 1)):
+                raise LedgerError("Checkpoint symlinks cannot be resumed")
+            if not original.resolve().is_relative_to(base.resolve()):
+                raise LedgerError("Checkpoint resolves outside saved storage")
+            captured = copy_bytes(original, directory / "inputs" / name)
+            if any(captured[k] != resume["checkpoint"][k] for k in captured):
+                raise LedgerError("Checkpoint failed hash verification")
+            payload["input_manifest"].append({"path": name, **captured})
+            target = work / resume_directory / name
+            copy_bytes(directory / "inputs" / name, target)
+            environment["RESEARCHLEDGER_RESUME"] = str(target)
+            payload["gaps"].append("Resume checks saved bytes and basic runtime identity; external state and checkpoint semantics are not verified")
         environment["RESEARCHLEDGER_CONFIG"] = str(work / reserved)
         environment["RESEARCHLEDGER_RUN_ID"] = identifier
         command = [sys.executable, "-u", entrypoint, *arguments]

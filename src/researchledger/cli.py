@@ -36,6 +36,9 @@ def main(argv=None):
     run.add_argument("--output", action="append", default=[], help="Expected file relative to run workspace")
     run.add_argument("--arg", action="append", default=[], help="Script argument; use --arg=-flag")
     run.add_argument("--timeout", type=float, default=3600)
+    run.add_argument("--checkpoint-output", action="append", default=[], help="Explicit resumable output file")
+    run.add_argument("--resume-from", help="Finalized prior run ID")
+    run.add_argument("--checkpoint", help="Saved checkpoint output path from prior run")
     runs = commands.add_parser("runs", help="List local execution attempts")
     runs.add_argument("--record")
     show_run = commands.add_parser("show-run", help="Read a persisted execution attempt")
@@ -70,7 +73,9 @@ def main(argv=None):
                 output = project.import_history(json.loads(args.manifest.read_text()))
             elif args.command == "run":
                 output = project.execute(args.id, args.entrypoint, outputs=args.output,
-                                         arguments=args.arg, timeout=args.timeout)
+                                         arguments=args.arg, timeout=args.timeout,
+                                         checkpoints=args.checkpoint_output, resume_from=args.resume_from,
+                                         checkpoint=args.checkpoint)
                 print(canonical(output))
                 return 0 if output["status"] == "succeeded" else 1
             elif args.command == "runs":

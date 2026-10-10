@@ -89,6 +89,8 @@ def export_bundle(project, output, record_ids=None):
                 issues.append({"id": run["id"], "path": None, "problem": "log_manifest_unavailable; unverified logs omitted"})
             for item in run.get("log_manifest", []):
                 capture(run["id"], item, base, Path("runs") / run["id"])
+            for item in run.get("input_manifest", []):
+                capture(run["id"], item, base / "inputs", Path("runs") / run["id"] / "inputs")
             for item in run["artifacts"]:
                 capture(run["id"], item, base / "artifacts", Path("runs") / run["id"] / "artifacts")
 

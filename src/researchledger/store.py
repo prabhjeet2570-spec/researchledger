@@ -210,11 +210,13 @@ class Project:
             rows = db.execute("SELECT payload FROM records ORDER BY rowid").fetchall()
         return [json.loads(row[0]) for row in rows]
 
-    def execute(self, record_id, entrypoint, *, outputs=(), arguments=(), timeout=3600):
+    def execute(self, record_id, entrypoint, *, outputs=(), arguments=(), timeout=3600,
+                checkpoints=(), resume_from=None, checkpoint=None):
         """Execute a copied source snapshot locally; each attempt gets a run ID."""
         from .executor import execute
         return execute(self, record_id, entrypoint, outputs=outputs,
-                       arguments=arguments, timeout=timeout)
+                       arguments=arguments, timeout=timeout, checkpoints=checkpoints,
+                       resume_from=resume_from, checkpoint=checkpoint)
 
     def export(self, output, record_ids=None):
         """Write a portable ZIP of saved evidence, including selected ancestors."""
@@ -271,6 +273,7 @@ class Project:
                 errors.append({"id": run["id"], "path": None, "problem": "log_manifest_unavailable"})
             items = [(item, directory) for item in run.get("log_manifest", [])]
             items += [(item, directory / "artifacts") for item in run["artifacts"]]
+            items += [(item, directory / "inputs") for item in run.get("input_manifest", [])]
             for item, base in items:
                 try:
                     name = relative_file(item["path"])
