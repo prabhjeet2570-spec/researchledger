@@ -5,17 +5,18 @@ import json
 from importlib import metadata
 import re
 from contextlib import contextmanager
+from types import MappingProxyType
 import math
 import os
 from pathlib import Path
 import platform
 import signal
-import subprocess
 import sys
 import threading
 import uuid
 
 from .store import LedgerError, canonical, now, require_text
+from .backends import ExecutionRequest, ExecutionTimeout, LOCAL_BACKEND_IDENTITY, resolve_backend
 
 
 class RunInterrupted(KeyboardInterrupt):
@@ -72,16 +73,7 @@ def copy_bytes(source, target):
 
 
 def stop_process(process):
-    # Kill the launched process group on POSIX so ordinary children do not survive
-    # timeout. Detached processes can escape: this is not resource isolation.
-    if os.name == "posix":
-        try:
-            os.killpg(process.pid, signal.SIGKILL)
-        except ProcessLookupError:
-            pass
-    elif process.poll() is None:
-        process.kill()
-    process.wait()
+    process.stop()
 
 
 def dependency_versions(names):
@@ -123,8 +115,9 @@ def declared_context(value):
 
 def execute(project, record_id, entrypoint, *, outputs=(), arguments=(), timeout=3600,
             checkpoints=(), resume_from=None, checkpoint=None, reuse_from=None,
-            reuse_reason=None, reuse_context=None, dependencies=()):
+            reuse_reason=None, reuse_context=None, dependencies=(), backend="local-python"):
     record = project.get(record_id)
+    backend, backend_identity = resolve_backend(backend)
     reuse_context = declared_context(reuse_context)
     observed_dependencies = dependency_versions(dependencies)
     if reuse_from is None and reuse_reason is not None:
@@ -179,6 +172,7 @@ def execute(project, record_id, entrypoint, *, outputs=(), arguments=(), timeout
                 or prior["arguments"] != arguments or prior["config"] != record["config"]
                 or prior["source_manifest"] != record["sources"]
                 or prior["environment"] != environment_identity
+                or canonical(prior.get("backend", LOCAL_BACKEND_IDENTITY)) != canonical(backend_identity)
                 or prior.get("captured_inputs", []) != record.get("inputs", [])
                 or prior.get("dependency_manifest", {}) != observed_dependencies):
             raise LedgerError("Resume requires identical record, entrypoint, arguments, inputs and dependency/runtime identities")
@@ -200,6 +194,7 @@ def execute(project, record_id, entrypoint, *, outputs=(), arguments=(), timeout
                 or reused["arguments"] != arguments or canonical(reused["config"]) != canonical(record["config"])
                 or reused["source_manifest"] != record["sources"]
                 or reused["environment"] != environment_identity
+                or canonical(reused.get("backend", LOCAL_BACKEND_IDENTITY)) != canonical(backend_identity)
                 or reused.get("captured_inputs", []) != record.get("inputs", [])
                 or reused.get("dependency_manifest", {}) != observed_dependencies
                 or reused["declared_outputs"] != outputs
@@ -224,7 +219,7 @@ def execute(project, record_id, entrypoint, *, outputs=(), arguments=(), timeout
         "execution_kind": "reused" if reused is not None else "executed",
         "reused_from": reuse_from, "reuse_reason": reuse_reason, "reuse_context": reuse_context,
         "returncode": None, "pid": None, "error": None, "interruption_signal": None,
-        "environment": environment_identity,
+        "environment": environment_identity, "backend": backend_identity, "backend_execution_id": None,
         "logs": {"stdout": "stdout.log", "stderr": "stderr.log"},
         "gaps": ["Only explicitly captured inputs and selected distribution versions are recorded; other external state and dependency bytes are not snapshotted",
                  "Process exit and captured outputs do not establish scientific correctness",
@@ -303,15 +298,17 @@ def execute(project, record_id, entrypoint, *, outputs=(), arguments=(), timeout
         with interruption_signals(), (directory / "stdout.log").open("xb") as stdout, (directory / "stderr.log").open("xb") as stderr:
             payload["status"] = "launching"
             project._save_run(payload)
-            process = subprocess.Popen(command, cwd=work, env=environment,
-                                       stdout=stdout, stderr=stderr, stdin=subprocess.DEVNULL,
-                                       start_new_session=os.name == "posix")
-            payload.update(status="running", pid=process.pid, started_at=now())
+            request = ExecutionRequest(identifier, tuple(command), work,
+                                       MappingProxyType(environment), stdout, stderr)
+            process = backend.launch(request)
+            require_text(process.execution_id, "Backend execution identifier")
+            payload.update(status="running", pid=process.pid, started_at=now(),
+                           backend_execution_id=process.execution_id)
             project._save_run(payload)
             try:
                 code = process.wait(timeout=timeout)
                 payload["status"] = "succeeded" if code == 0 else "failed"
-            except subprocess.TimeoutExpired:
+            except ExecutionTimeout:
                 stop_process(process)
                 payload["status"] = "timed_out"
             except KeyboardInterrupt as exc:

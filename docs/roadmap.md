@@ -80,7 +80,9 @@ remain open. Explicit deterministic-context output reuse is also implemented,
 with verified copied outputs, no new process, recorded rationale and original-run
 lineage. Explicit project input files are snapshotted and used as verified run
 inputs; selected installed distribution versions are observed and checked on
-resume/reuse. Additional external identities remain caller declarations. Remaining work includes:
+resume/reuse. Additional external identities remain caller declarations. The synchronous
+execution backend interface routes the local executor through a working adapter,
+accepts explicit trusted SDK adapters and persists adapter/execution identity. Remaining work includes:
 
 - Durable live checkpoint capture/recovery and stronger observed input/environment
   identity checks for output reuse to avoid wasted compute. Experiment code must save/restore its own state; resume attempts should
@@ -88,9 +90,9 @@ resume/reuse. Additional external identities remain caller declarations. Remaini
   remain distinguishable from cached evidence.
 - Richer reproducibility manifests for uncaptured input versions, seeds and full
   dependency/environment details, with explicit gaps and no guarantee of identical numerical outcomes.
-- A general execution backend interface and scheduler adapters configured for
-  different clusters, with durable job identities and duplicate-submission/crash
-  reconciliation. Real cluster access is needed to validate a scheduler backend.
+- Extend the current synchronous backend interface for remote runtime preparation
+  and scheduler adapters configured for different clusters, with durable job
+  identities and duplicate-submission/crash reconciliation. Real cluster access is needed to validate a scheduler backend.
 - Typed campaign scope/resource controls and independent ActionProof integration
   checks of submitted jobs and observed records. Neither is implemented.
 - Richer project relationship proposals and artifact-linked documentation views.

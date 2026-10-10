@@ -190,6 +190,49 @@ can leave unresolved runs, which verification flags without guessing completion.
 Older runs without log hashes report that verification gap; hashes are not
 retroactively treated as if they were captured at execution time.
 
+Execution uses a backend adapter. The default SDK call and
+`researchledger run ... --backend local-python` use `LocalPythonBackend`.
+Runs persist its stable identity and the returned execution identifier; resume
+and reuse reject a changed backend identity. Older local runs without this field
+retain compatibility with the same local adapter.
+
+The SDK also accepts a trusted object implementing `ExecutionBackend`:
+
+```python
+from researchledger import LocalPythonBackend
+
+class StudyBackend:
+    def identity(self):
+        return {"name": "study-local", "version": "1", "protocol": "cpu-study"}
+
+    def launch(self, request):
+        # Inspect the prepared request or apply project-specific checks here.
+        return LocalPythonBackend().launch(request)
+
+run = project.execute(record_id, "experiment.py", backend=StudyBackend())
+```
+
+`identity()` returns a finite JSON object with nonempty string `name` and
+`version`; include configuration that affects execution compatibility.
+`launch(ExecutionRequest)` receives the run ID, command tuple, prepared workspace,
+read-only environment mapping and open stdout/stderr streams. It returns a
+`RunningExecution` with a nonempty `execution_id`, optional `pid`, `returncode`,
+`wait(timeout)` and `stop()`. A wait deadline raises `ExecutionTimeout`;
+`stop()` must stop execution and wait before the coordinator captures outputs.
+If launch raises before returning a handle, the adapter must clean up any process
+it started. The coordinator owns snapshot preparation, attempt records, signals,
+logs, output capture and resume/reuse verification. Reuse calls never launch an
+adapter. Backend identities and adapter observations are not independent proof
+that submitted code executed correctly.
+
+This is a synchronous interface for prepared local workspaces and log streams.
+The built-in CLI adapter list currently contains only `local-python`; custom
+adapters are supplied explicitly through the SDK. Runtime/dependency observations
+refer to the calling interpreter. Remote runtime preparation, persistent scheduler
+reconnection, job submission and remote output transfer are not implemented. A
+local PID is an execution reference, not a durable scheduler identity or a safe
+restart handle. Custom adapter code is trusted and is not sandboxed.
+
 Capture data separately from executable sources:
 
 ```sh

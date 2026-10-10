@@ -33,6 +33,7 @@ def main(argv=None):
     history.add_argument("--manifest", type=Path, required=True, help="Historical evidence JSON")
     run = commands.add_parser("run", help="Execute a captured Python script locally")
     run.add_argument("id", help="Saved experiment record ID")
+    run.add_argument("--backend", default="local-python", choices=["local-python"], help="Execution adapter")
     run.add_argument("--entrypoint", required=True)
     run.add_argument("--output", action="append", default=[], help="Expected file relative to run workspace")
     run.add_argument("--arg", action="append", default=[], help="Script argument; use --arg=-flag")
@@ -83,7 +84,7 @@ def main(argv=None):
                                          checkpoint=args.checkpoint, reuse_from=args.reuse_from,
                                          reuse_reason=args.reuse_reason,
                                          reuse_context=json.loads(args.reuse_context.read_text()) if args.reuse_context else None,
-                                         dependencies=args.dependency)
+                                         dependencies=args.dependency, backend=args.backend)
                 print(canonical(output))
                 return 0 if output["status"] in {"succeeded", "reused"} else 1
             elif args.command == "runs":
