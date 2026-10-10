@@ -228,6 +228,11 @@ class Project:
                        resume_from=resume_from, checkpoint=checkpoint, reuse_from=reuse_from,
                        reuse_reason=reuse_reason, reuse_context=reuse_context, dependencies=dependencies, backend=backend, checkpoint_revision=checkpoint_revision)
 
+    def reconcile_run(self, run_id, reason):
+        """Finalize an abandoned local attempt without inventing its exit outcome."""
+        from .recovery import reconcile_run
+        return reconcile_run(self, run_id, reason)
+
     def save_checkpoint(self, run_id, path):
         """Append an immutable revision of an explicitly declared live checkpoint."""
         from .checkpoints import save_checkpoint
@@ -291,7 +296,7 @@ class Project:
             if "log_manifest" not in run and run["finished_at"] is not None:
                 errors.append({"id": run["id"], "path": None, "problem": "log_manifest_unavailable"})
             items = [] if run["finished_at"] is None else [(item, directory) for item in run.get("log_manifest", [])]
-            items += [(item, directory / "artifacts") for item in run["artifacts"]]
+            items += [(item, directory / run.get("artifact_directory", "artifacts")) for item in run["artifacts"]]
             items += [(item, directory / "inputs") for item in run.get("input_manifest", [])]
             items += [(cp["artifact"], directory / "checkpoints" / cp["id"]) for cp in self.checkpoints(run["id"])]
             for item, base in items:

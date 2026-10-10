@@ -218,148 +218,151 @@ def execute(project, record_id, entrypoint, *, outputs=(), arguments=(), timeout
     directory = project.directory / "runs" / identifier
     work = directory / "work"
     work.mkdir(parents=True)
-    payload = {
-        "id": identifier, "record_id": record_id, "created_at": now(),
-        "status": "preparing", "started_at": None, "finished_at": None,
-        "entrypoint": entrypoint, "arguments": arguments, "timeout_seconds": timeout,
-        "config": record["config"], "source_manifest": record["sources"],
-        "captured_inputs": record.get("inputs", []), "dependency_manifest": observed_dependencies,
-        "declared_outputs": outputs, "declared_checkpoints": checkpoints,
-        "resume_from": resume, "input_manifest": [], "artifacts": [], "output_errors": [],
-        "execution_kind": "reused" if reused is not None else "executed",
-        "reused_from": reuse_from, "reuse_reason": reuse_reason, "reuse_context": reuse_context,
-        "returncode": None, "pid": None, "error": None, "interruption_signal": None,
-        "environment": environment_identity, "backend": backend_identity, "backend_execution_id": None,
-        "logs": {"stdout": "stdout.log", "stderr": "stderr.log"},
-        "gaps": ["Only explicitly captured inputs and selected distribution versions are recorded; other external state and dependency bytes are not snapshotted",
-                 "Process exit and captured outputs do not establish scientific correctness",
-                 "Inherited environment can affect execution; environment variables are not recorded"],
-    }
-    project._save_run(payload)
-    process = None
-    try:
-        snapshot = project.directory / "snapshots" / record_id
-        for name, item in sources.items():
-            original = snapshot / name
-            if original.is_symlink() or not original.resolve().is_relative_to(snapshot.resolve()):
-                raise LedgerError("Captured source resolves outside its snapshot")
-            copied = copy_bytes(original, work / name)
-            if copied["size_bytes"] != item["size_bytes"] or copied["sha256"] != item["sha256"]:
-                raise LedgerError(f"Captured source failed hash verification: {name}")
-        for name, item in inputs.items():
-            original = snapshot / name
-            if any((snapshot / Path(*Path(name).parts[:i])).is_symlink()
-                   for i in range(1, len(Path(name).parts) + 1)):
-                raise LedgerError("Captured input symlinks cannot be copied")
-            if not original.resolve().is_relative_to(snapshot.resolve()) or not original.is_file():
-                raise LedgerError("Captured input is missing or outside its snapshot")
-            saved = copy_bytes(original, directory / "inputs" / name)
-            if any(saved[k] != item[k] for k in saved):
-                (directory / "inputs" / name).unlink()
-                raise LedgerError(f"Captured input failed hash verification: {name}")
-            payload["input_manifest"].append({"path": name, **saved})
-            copy_bytes(directory / "inputs" / name, work / name)
-        if reused is not None:
-            base = project.directory / "runs" / reused["id"] / "artifacts"
-            for item in reused["artifacts"]:
-                name = relative_file(item["path"])
+    from .recovery import coordinator_guard
+    with coordinator_guard(directory) as coordinator_locked:
+        payload = {
+            "id": identifier, "record_id": record_id, "created_at": now(),
+            "status": "preparing", "started_at": None, "finished_at": None,
+            "entrypoint": entrypoint, "arguments": arguments, "timeout_seconds": timeout,
+            "config": record["config"], "source_manifest": record["sources"],
+            "captured_inputs": record.get("inputs", []), "dependency_manifest": observed_dependencies,
+            "declared_outputs": outputs, "declared_checkpoints": checkpoints,
+            "resume_from": resume, "input_manifest": [], "artifacts": [], "output_errors": [],
+            "execution_kind": "reused" if reused is not None else "executed",
+            "reused_from": reuse_from, "reuse_reason": reuse_reason, "reuse_context": reuse_context,
+            "returncode": None, "pid": None, "error": None, "interruption_signal": None,
+            "coordinator_lock": coordinator_locked, "execution_host": platform.node(),
+            "environment": environment_identity, "backend": backend_identity, "backend_execution_id": None,
+            "logs": {"stdout": "stdout.log", "stderr": "stderr.log"},
+            "gaps": ["Only explicitly captured inputs and selected distribution versions are recorded; other external state and dependency bytes are not snapshotted",
+                     "Process exit and captured outputs do not establish scientific correctness",
+                     "Inherited environment can affect execution; environment variables are not recorded"],
+        }
+        project._save_run(payload)
+        process = None
+        try:
+            snapshot = project.directory / "snapshots" / record_id
+            for name, item in sources.items():
+                original = snapshot / name
+                if original.is_symlink() or not original.resolve().is_relative_to(snapshot.resolve()):
+                    raise LedgerError("Captured source resolves outside its snapshot")
+                copied = copy_bytes(original, work / name)
+                if copied["size_bytes"] != item["size_bytes"] or copied["sha256"] != item["sha256"]:
+                    raise LedgerError(f"Captured source failed hash verification: {name}")
+            for name, item in inputs.items():
+                original = snapshot / name
+                if any((snapshot / Path(*Path(name).parts[:i])).is_symlink()
+                       for i in range(1, len(Path(name).parts) + 1)):
+                    raise LedgerError("Captured input symlinks cannot be copied")
+                if not original.resolve().is_relative_to(snapshot.resolve()) or not original.is_file():
+                    raise LedgerError("Captured input is missing or outside its snapshot")
+                saved = copy_bytes(original, directory / "inputs" / name)
+                if any(saved[k] != item[k] for k in saved):
+                    (directory / "inputs" / name).unlink()
+                    raise LedgerError(f"Captured input failed hash verification: {name}")
+                payload["input_manifest"].append({"path": name, **saved})
+                copy_bytes(directory / "inputs" / name, work / name)
+            if reused is not None:
+                base = project.directory / "runs" / reused["id"] / "artifacts"
+                for item in reused["artifacts"]:
+                    name = relative_file(item["path"])
+                    original = base / name
+                    if any((base / Path(*Path(name).parts[:i])).is_symlink()
+                           for i in range(1, len(Path(name).parts) + 1)):
+                        raise LedgerError("Reused output symlinks cannot be copied")
+                    if not original.resolve().is_relative_to(base.resolve()) or not original.is_file():
+                        raise LedgerError("Reused output is missing or outside saved storage")
+                    saved = copy_bytes(original, directory / "artifacts" / name)
+                    if any(saved[k] != item[k] for k in saved):
+                        (directory / "artifacts" / name).unlink()
+                        raise LedgerError("Reused output failed hash verification")
+                    payload["artifacts"].append({"path": name, **saved})
+                payload.update(status="reused", logs={}, log_manifest=[], finished_at=now())
+                payload["gaps"].extend([
+                    "No process was launched; reused evidence is not independent replication",
+                    "External input/dependency/environment identities and determinism are caller declarations, not verified observations",
+                ])
+                project._save_run(payload)
+                return payload
+            (work / reserved).write_text(canonical(record["config"]) + "\n", encoding="utf-8")
+            environment = os.environ.copy()
+            environment.pop("RESEARCHLEDGER_RESUME", None)
+            if resume is not None:
+                name = resume["checkpoint"]["path"]
+                base = project.directory / "runs" / resume["run_id"] / prior.get("artifact_directory", "artifacts")
+                if "revision_id" in resume:
+                    base = project.directory / "runs" / resume["run_id"] / "checkpoints" / resume["revision_id"]
                 original = base / name
                 if any((base / Path(*Path(name).parts[:i])).is_symlink()
                        for i in range(1, len(Path(name).parts) + 1)):
-                    raise LedgerError("Reused output symlinks cannot be copied")
-                if not original.resolve().is_relative_to(base.resolve()) or not original.is_file():
-                    raise LedgerError("Reused output is missing or outside saved storage")
-                saved = copy_bytes(original, directory / "artifacts" / name)
-                if any(saved[k] != item[k] for k in saved):
-                    (directory / "artifacts" / name).unlink()
-                    raise LedgerError("Reused output failed hash verification")
-                payload["artifacts"].append({"path": name, **saved})
-            payload.update(status="reused", logs={}, log_manifest=[], finished_at=now())
-            payload["gaps"].extend([
-                "No process was launched; reused evidence is not independent replication",
-                "External input/dependency/environment identities and determinism are caller declarations, not verified observations",
-            ])
-            project._save_run(payload)
-            return payload
-        (work / reserved).write_text(canonical(record["config"]) + "\n", encoding="utf-8")
-        environment = os.environ.copy()
-        environment.pop("RESEARCHLEDGER_RESUME", None)
-        if resume is not None:
-            name = resume["checkpoint"]["path"]
-            base = project.directory / "runs" / resume["run_id"] / "artifacts"
-            if "revision_id" in resume:
-                base = project.directory / "runs" / resume["run_id"] / "checkpoints" / resume["revision_id"]
-            original = base / name
-            if any((base / Path(*Path(name).parts[:i])).is_symlink()
-                   for i in range(1, len(Path(name).parts) + 1)):
-                raise LedgerError("Checkpoint symlinks cannot be resumed")
-            if not original.resolve().is_relative_to(base.resolve()):
-                raise LedgerError("Checkpoint resolves outside saved storage")
-            captured = copy_bytes(original, directory / "inputs" / name)
-            if any(captured[k] != resume["checkpoint"][k] for k in captured):
-                raise LedgerError("Checkpoint failed hash verification")
-            payload["input_manifest"].append({"path": name, **captured})
-            target = work / resume_directory / name
-            copy_bytes(directory / "inputs" / name, target)
-            environment["RESEARCHLEDGER_RESUME"] = str(target)
-            payload["gaps"].append("Resume checks saved bytes and basic runtime identity; external state and checkpoint semantics are not verified")
-        environment["RESEARCHLEDGER_PROJECT"] = str(project.root)
-        environment["RESEARCHLEDGER_CONFIG"] = str(work / reserved)
-        environment["RESEARCHLEDGER_RUN_ID"] = identifier
-        command = [sys.executable, "-u", entrypoint, *arguments]
-        payload["command"] = command
-        with interruption_signals(), (directory / "stdout.log").open("xb") as stdout, (directory / "stderr.log").open("xb") as stderr:
-            payload["status"] = "launching"
-            project._save_run(payload)
-            request = ExecutionRequest(identifier, tuple(command), work,
-                                       MappingProxyType(environment), stdout, stderr)
-            process = backend.launch(request)
-            require_text(process.execution_id, "Backend execution identifier")
-            payload.update(status="running", pid=process.pid, started_at=now(),
-                           backend_execution_id=process.execution_id)
-            project._save_run(payload)
-            try:
-                code = process.wait(timeout=timeout)
-                payload["status"] = "succeeded" if code == 0 else "failed"
-            except ExecutionTimeout:
+                    raise LedgerError("Checkpoint symlinks cannot be resumed")
+                if not original.resolve().is_relative_to(base.resolve()):
+                    raise LedgerError("Checkpoint resolves outside saved storage")
+                captured = copy_bytes(original, directory / "inputs" / name)
+                if any(captured[k] != resume["checkpoint"][k] for k in captured):
+                    raise LedgerError("Checkpoint failed hash verification")
+                payload["input_manifest"].append({"path": name, **captured})
+                target = work / resume_directory / name
+                copy_bytes(directory / "inputs" / name, target)
+                environment["RESEARCHLEDGER_RESUME"] = str(target)
+                payload["gaps"].append("Resume checks saved bytes and basic runtime identity; external state and checkpoint semantics are not verified")
+            environment["RESEARCHLEDGER_PROJECT"] = str(project.root)
+            environment["RESEARCHLEDGER_CONFIG"] = str(work / reserved)
+            environment["RESEARCHLEDGER_RUN_ID"] = identifier
+            command = [sys.executable, "-u", entrypoint, *arguments]
+            payload["command"] = command
+            with interruption_signals(), (directory / "stdout.log").open("xb") as stdout, (directory / "stderr.log").open("xb") as stderr:
+                payload["status"] = "launching"
+                project._save_run(payload)
+                request = ExecutionRequest(identifier, tuple(command), work,
+                                           MappingProxyType(environment), stdout, stderr)
+                process = backend.launch(request)
+                require_text(process.execution_id, "Backend execution identifier")
+                payload.update(status="running", pid=process.pid, started_at=now(),
+                               backend_execution_id=process.execution_id)
+                project._save_run(payload)
+                try:
+                    code = process.wait(timeout=timeout)
+                    payload["status"] = "succeeded" if code == 0 else "failed"
+                except ExecutionTimeout:
+                    stop_process(process)
+                    payload["status"] = "timed_out"
+                except KeyboardInterrupt as exc:
+                    stop_process(process)
+                    payload["status"] = "interrupted"
+                    payload["interruption_signal"] = getattr(exc, "signum", signal.SIGINT)
+                payload["returncode"] = process.returncode
+        except (Exception, KeyboardInterrupt) as exc:
+            if process is not None:
                 stop_process(process)
-                payload["status"] = "timed_out"
-            except KeyboardInterrupt as exc:
-                stop_process(process)
-                payload["status"] = "interrupted"
+            payload["status"] = ("interrupted" if isinstance(exc, KeyboardInterrupt) else
+                                 "preparation_failed" if process is None else "executor_failed")
+            payload["error"] = str(exc)
+            if isinstance(exc, KeyboardInterrupt):
                 payload["interruption_signal"] = getattr(exc, "signum", signal.SIGINT)
-            payload["returncode"] = process.returncode
-    except (Exception, KeyboardInterrupt) as exc:
-        if process is not None:
-            stop_process(process)
-        payload["status"] = ("interrupted" if isinstance(exc, KeyboardInterrupt) else
-                             "preparation_failed" if process is None else "executor_failed")
-        payload["error"] = str(exc)
-        if isinstance(exc, KeyboardInterrupt):
-            payload["interruption_signal"] = getattr(exc, "signum", signal.SIGINT)
-        if process is not None:
-            payload["returncode"] = process.returncode
+            if process is not None:
+                payload["returncode"] = process.returncode
 
-    # Preserve available declared outputs even after failure or timeout.
-    for name in ([] if reused is not None else outputs):
-        source = work / name
-        try:
-            if any((work / Path(*Path(name).parts[:i])).is_symlink()
-                   for i in range(1, len(Path(name).parts) + 1)):
-                raise LedgerError("Output symlinks cannot be captured")
-            if not source.resolve().is_relative_to(work.resolve()) or not source.is_file():
-                raise LedgerError("Declared output is missing or not a regular file")
-            captured = copy_bytes(source, directory / "artifacts" / name)
-            payload["artifacts"].append({"path": name, **captured})
-        except (OSError, LedgerError) as exc:
-            payload["output_errors"].append({"path": name, "problem": str(exc)})
-    if payload["status"] == "succeeded" and payload["output_errors"]:
-        payload["status"] = "outputs_incomplete"
-    payload["log_manifest"] = []
-    for name in payload["logs"].values():
-        path = directory / name
-        if path.is_file():
-            payload["log_manifest"].append({"path": name, **hash_file(path)})
-    payload["finished_at"] = now()
-    project._save_run(payload)
-    return payload
+        # Preserve available declared outputs even after failure or timeout.
+        for name in ([] if reused is not None else outputs):
+            source = work / name
+            try:
+                if any((work / Path(*Path(name).parts[:i])).is_symlink()
+                       for i in range(1, len(Path(name).parts) + 1)):
+                    raise LedgerError("Output symlinks cannot be captured")
+                if not source.resolve().is_relative_to(work.resolve()) or not source.is_file():
+                    raise LedgerError("Declared output is missing or not a regular file")
+                captured = copy_bytes(source, directory / "artifacts" / name)
+                payload["artifacts"].append({"path": name, **captured})
+            except (OSError, LedgerError) as exc:
+                payload["output_errors"].append({"path": name, "problem": str(exc)})
+        if payload["status"] == "succeeded" and payload["output_errors"]:
+            payload["status"] = "outputs_incomplete"
+        payload["log_manifest"] = []
+        for name in payload["logs"].values():
+            path = directory / name
+            if path.is_file():
+                payload["log_manifest"].append({"path": name, **hash_file(path)})
+        payload["finished_at"] = now()
+        project._save_run(payload)
+        return payload

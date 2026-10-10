@@ -77,7 +77,10 @@ Checkpoint resume for finalized local attempts is implemented: declared saved
 checkpoints become verified inputs to new linked attempts. Experiment code owns
 state restoration. Explicit live checkpoint saves now create immutable revisions that survive
 coordinator crashes and can be selected when resuming finalized attempts.
-Automatic synchronization and abrupt-crash reconciliation remain open. Explicit deterministic-context output reuse is also implemented,
+Automatic synchronization remains open. Conservative POSIX local reconciliation
+now checks coordinator locking, host and process-group absence, retains an unknown
+exit outcome and preserves recovered evidence for explicit checkpoint resume.
+Legacy/custom-backend/unknown-launch runs and live groups remain unresolved. Explicit deterministic-context output reuse is also implemented,
 with verified copied outputs, no new process, recorded rationale and original-run
 lineage. Explicit project input files are snapshotted and used as verified run
 inputs; selected installed distribution versions are observed and checked on

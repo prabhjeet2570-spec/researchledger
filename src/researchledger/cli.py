@@ -51,6 +51,9 @@ def main(argv=None):
     checkpoint.add_argument("--path", required=True)
     checkpoints = commands.add_parser("checkpoints", help="List immutable checkpoint revisions")
     checkpoints.add_argument("id", help="Run ID")
+    reconcile = commands.add_parser("reconcile-run", help="Reconcile an abandoned local attempt conservatively")
+    reconcile.add_argument("id")
+    reconcile.add_argument("--reason", required=True)
     runs = commands.add_parser("runs", help="List local execution attempts")
     runs.add_argument("--record")
     show_run = commands.add_parser("show-run", help="Read a persisted execution attempt")
@@ -98,6 +101,8 @@ def main(argv=None):
                 output = project.save_checkpoint(args.id, args.path)
             elif args.command == "checkpoints":
                 output = project.checkpoints(args.id)
+            elif args.command == "reconcile-run":
+                output = project.reconcile_run(args.id, args.reason)
             elif args.command == "runs":
                 output = project.runs(args.record)
             elif args.command == "show-run":

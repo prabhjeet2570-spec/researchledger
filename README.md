@@ -180,7 +180,8 @@ Python also supports `project.execute(record_id, "experiment.py",
 outputs=["metrics.json"], timeout=60)`. Each attempt has its own run record;
 the source record remains unchanged. A successful process with missing declared
 outputs is marked `outputs_incomplete`. Failures and timeouts retain available
-outputs and logs. Notebook execution and crash reconciliation are not implemented.
+outputs and logs. Notebook execution is not implemented. Conservative POSIX local reconciliation
+is available for eligible abandoned attempts.
 Execution inherits your environment and is **not a sandbox**. Run trusted code
 only; neither exit status nor output hashes establish scientific correctness.
 `verify` checks experiment snapshots plus finalized run logs, outputs and resume inputs.
@@ -282,7 +283,7 @@ prior run, saves the checkpoint as a verified input and includes it in exports.
 This does not verify unselected dependencies, uncaptured external inputs or
 checkpoint semantics.
 Explicit live checkpoint saves are available as immutable revisions. Automatic
-checkpoint polling and crash reconciliation remain future work; only finalized
+checkpoint polling remains future work; only finalized
 attempts can be resumed.
 
 Save completed checkpoints during execution with the same SDK or CLI:
@@ -310,9 +311,30 @@ plus `--checkpoint-revision cp-<identifier>`; Python accepts `checkpoint_revisio
 Saved revisions survive later checkpoint overwrites and coordinator SIGKILL.
 Verification checks their hashes even for unresolved runs, and export includes
 `checkpoints.json` and committed checkpoint bytes while reporting unresolved
-execution. Live logs and work files remain omitted. An unresolved run cannot yet
-be resumed: its process may still be active, and reconciliation remains future
-work. No automatic duplicate execution or unsafe PID attachment is performed.
+execution. Live logs and work files remain omitted. An unresolved run must be reconciled before resume: its process may still be active. No automatic duplicate execution or unsafe PID attachment is performed.
+
+Reconcile an eligible abandoned local run explicitly:
+
+```sh
+researchledger reconcile-run run-<identifier> --reason "Coordinator exited before finalization"
+```
+
+Python exposes `project.reconcile_run(run_id, reason)`. The operation requires
+POSIX coordinator locking, the built-in local backend, the recorded execution
+host matching the current host, an available coordinator lock and an absent
+recorded process group. It probes the group; it never attaches to or terminates
+an old PID. A live/recycled group, unknown PID, older run without locking, custom
+backend or different host blocks reconciliation. Host names are a conservative
+local check, not authenticated remote host identity.
+
+Available working outputs and logs are captured as post-interruption evidence.
+The status becomes `recovered_unknown`, with no invented exit code or successful
+completion claim. Checkpoint revisions remain unchanged, and explicit resume can
+use a verified saved checkpoint after reconciliation. Recovered evidence cannot
+serve as successful result reuse. Missing/unsafe outputs remain reported gaps.
+Detached children and external work-file edits cannot be ruled out; recovery is
+intended for local trusted workflows and is not process isolation. No process is
+started by reconciliation.
 
 Reuse completed output evidence explicitly, without launching another process:
 

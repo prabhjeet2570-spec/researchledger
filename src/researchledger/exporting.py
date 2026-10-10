@@ -96,7 +96,7 @@ def export_bundle(project, output, record_ids=None):
             for item in run.get("input_manifest", []):
                 capture(run["id"], item, base / "inputs", Path("runs") / run["id"] / "inputs")
             for item in run["artifacts"]:
-                capture(run["id"], item, base / "artifacts", Path("runs") / run["id"] / "artifacts")
+                capture(run["id"], item, base / run.get("artifact_directory", "artifacts"), Path("runs") / run["id"] / "artifacts")
 
         for name, value in [("records.json", records), ("runs.json", runs), ("research_records.json", notes), ("checkpoints.json", checkpoints)]:
             (stage / name).write_text(canonical(value) + "\n", encoding="utf-8")
