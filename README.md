@@ -12,6 +12,28 @@ it, recover its kernel history, or establish that its contents produced a result
 Local Python execution and portable evidence export are available; HPC execution is planned
 in [the progressive roadmap](docs/roadmap.md).
 
+## Run the synthetic CPU workflow
+
+After installing from this checkout, run:
+
+```bash
+python examples/cpu_workflow.py /tmp/researchledger-cpu-demo
+researchledger --project /tmp/researchledger-cpu-demo runs
+researchledger --project /tmp/researchledger-cpu-demo notes
+researchledger --project /tmp/researchledger-cpu-demo verify
+```
+
+Choose a new destination; existing directories are refused. The example integrates
+x squared on [0, 1] with two grid sizes using only the Python standard library.
+It saves a bounded inventory and explicit capture plan, imports a clearly labeled
+synthetic prior-result fixture with provenance gaps, executes captured sources,
+retains logs and a request artifact when zero intervals is rejected, revises an
+evidence-linked decision, verifies saved bytes, and writes `evidence.zip` plus a
+readable `summary.json`. Results are computed during your run, not downloaded or
+prebuilt. The example uses the same SDK operations exposed by the CLI; no agent
+model API, GPU or cluster is required. Checkpoint resume and automatic result
+reuse are not implemented yet.
+
 ## Try the first milestone
 
 Python 3.12 or newer. Install from this checkout; the package is not on PyPI.
