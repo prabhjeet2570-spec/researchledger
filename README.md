@@ -166,8 +166,8 @@ The ZIP contains `manifest.json` with hashes/issues, `records.json`, `runs.json`
 `research_records.json`, `evidence.csv`, and saved files. Missing/changed evidence is omitted and reported;
 the bundle is still written, but the CLI exits nonzero. Existing destinations are
 never overwritten. Live-run files and older unhashed logs are omitted with an
-explicit gap. Export does not include external inputs, dependencies or working
-directories, and is not a runnable environment or restorable ledger. Review its
+explicit gap. Export includes explicitly captured inputs, but excludes uncaptured external
+inputs, dependency bytes and working directories, and is not a runnable environment or restorable ledger. Review its
 contents before sharing; no redaction is performed.
 
 Run a captured Python script with `researchledger run exp-<identifier>
@@ -190,6 +190,32 @@ can leave unresolved runs, which verification flags without guessing completion.
 Older runs without log hashes report that verification gap; hashes are not
 retroactively treated as if they were captured at execution time.
 
+Capture data separately from executable sources:
+
+```sh
+researchledger record --question "Sum fixed observations" --source experiment.py --input data/values.json
+researchledger run exp-<identifier> --entrypoint experiment.py --output metrics.json --dependency numpy
+```
+
+Python uses `project.record(..., inputs=["data/values.json"])` and
+`project.execute(..., dependencies=["numpy"])`. Inputs must be explicit
+project-relative files and follow the same path/storage exclusions as sources.
+The ledger saves their bytes and hashes at capture time. Each run verifies them,
+keeps a separate saved input copy and places a working copy at its original
+relative path. Changes to the project's live data do not change that snapshot.
+Input paths cannot also be outputs or executable entrypoints. New experiment
+records are required for changed datasets. Verification and export include both
+experiment input snapshots and saved run inputs.
+
+`--dependency` is repeatable and names an installed Python distribution, rather
+than an import module. Selected versions are observed from installed metadata
+without importing package code; missing distributions and duplicate normalized
+names are rejected. Repeat the same selection when resuming or reusing a run:
+changed versions or selections are rejected. A package's version is not a hash of
+its installed code. This does not record every transitive dependency, system
+library, driver or environment variable, install dependencies, or enforce a seed.
+Continue to declare these gaps and keep seeds in your experiment configuration.
+
 Resume a finalized attempt using an explicitly declared checkpoint:
 
 ```sh
@@ -206,10 +232,12 @@ Write checkpoints atomically so interruption cannot leave a partial file.
 
 The SDK captures declared checkpoint outputs when an attempt finalizes, including
 handled failure, timeout or interruption. Resume verifies saved checkpoint bytes
-and requires the same experiment snapshot, configuration, entrypoint, arguments
-and basic interpreter/platform identity. It creates a new attempt linked to the
+and requires the same experiment snapshot, configuration, captured inputs,
+entrypoint, arguments, selected dependency versions and basic interpreter/platform
+identity. It creates a new attempt linked to the
 prior run, saves the checkpoint as a verified input and includes it in exports.
-This does not verify dependency versions, external inputs or checkpoint semantics.
+This does not verify unselected dependencies, uncaptured external inputs or
+checkpoint semantics.
 Live checkpoint synchronization and recovery after SIGKILL or executor crashes
 remain future work; only finalized attempts can be resumed.
 
@@ -227,7 +255,7 @@ Reuse completed output evidence explicitly, without launching another process:
 
 Save this as `context.json`, declaring every relevant external input identity
 (prefer a content hash), dependency version, environment setting and random seed.
-Empty identity maps declare that no such external factors are relevant; `seed`
+Empty identity maps declare that no additional uncaptured external factors are relevant; `seed`
 may be null for an algorithm without randomness. Do not put secrets in this file.
 The context is a caller declaration, not an automatically verified environment.
 
@@ -240,7 +268,8 @@ Python uses `project.execute(..., reuse_context=context)` on the original run;
 subsequent requests also pass `reuse_from=prior_run["id"]` and `reuse_reason`.
 Reuse requires a finalized successful original execution, identical experiment,
 source/configuration, entrypoint, arguments, output/checkpoint declarations, basic
-runtime identity and deterministic context. All declared outputs must exist and
+runtime identity, captured inputs, selected dependency versions and deterministic
+context. All declared outputs must exist and
 pass hash verification. Older runs without a context, failed/incomplete runs,
 resumed runs and reuse records cannot serve as reuse sources in this version.
 

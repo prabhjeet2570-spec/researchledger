@@ -2,6 +2,8 @@
 
 import hashlib
 import json
+from importlib import metadata
+import re
 from contextlib import contextmanager
 import math
 import os
@@ -82,6 +84,24 @@ def stop_process(process):
     process.wait()
 
 
+def dependency_versions(names):
+    """Observe selected installed distribution metadata without importing code."""
+    if isinstance(names, str):
+        raise LedgerError("Dependencies must be a sequence of distribution names")
+    versions = {}
+    for name in names:
+        if not isinstance(name, str) or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]*", name):
+            raise LedgerError("Dependency must be an installed distribution name")
+        normalized = re.sub(r"[-_.]+", "-", name).lower()
+        if normalized in versions:
+            raise LedgerError("Duplicate dependency distribution")
+        try:
+            versions[normalized] = metadata.version(name)
+        except metadata.PackageNotFoundError as exc:
+            raise LedgerError(f"Declared dependency is not installed: {name}") from exc
+    return versions
+
+
 def declared_context(value):
     """Validate caller declarations; they are not observed external state."""
     if value is None:
@@ -103,9 +123,10 @@ def declared_context(value):
 
 def execute(project, record_id, entrypoint, *, outputs=(), arguments=(), timeout=3600,
             checkpoints=(), resume_from=None, checkpoint=None, reuse_from=None,
-            reuse_reason=None, reuse_context=None):
+            reuse_reason=None, reuse_context=None, dependencies=()):
     record = project.get(record_id)
     reuse_context = declared_context(reuse_context)
+    observed_dependencies = dependency_versions(dependencies)
     if reuse_from is None and reuse_reason is not None:
         raise LedgerError("Reuse reason requires a prior run")
     if reuse_from is not None:
@@ -136,14 +157,15 @@ def execute(project, record_id, entrypoint, *, outputs=(), arguments=(), timeout
     sources = {relative_file(item["path"]): item for item in record["sources"]}
     if entrypoint not in sources or Path(entrypoint).suffix != ".py":
         raise LedgerError("Entrypoint must be a captured Python source file")
+    inputs = {relative_file(item["path"]): item for item in record.get("inputs", [])}
     reserved = ".researchledger-config.json"
     resume_directory = ".researchledger-resume"
-    if any(Path(p).parts[0] == resume_directory for p in [*sources, *outputs]):
+    if any(Path(p).parts[0] == resume_directory for p in [*sources, *inputs, *outputs]):
         raise LedgerError("Resume input directory is reserved")
-    if any(Path(p).parts[0] == reserved for p in [*sources, *outputs]):
+    if any(Path(p).parts[0] == reserved for p in [*sources, *inputs, *outputs]):
         raise LedgerError("Generated configuration path is reserved")
-    if len(set(outputs)) != len(outputs) or set(outputs) & sources.keys():
-        raise LedgerError("Output paths must be unique and distinct from captured sources")
+    if len(set(outputs)) != len(outputs) or set(outputs) & (sources.keys() | inputs.keys()):
+        raise LedgerError("Output paths must be unique and distinct from captured sources and inputs")
 
     environment_identity = {"python_executable": sys.executable,
                             "python_version": sys.version, "platform": platform.platform()}
@@ -156,8 +178,10 @@ def execute(project, record_id, entrypoint, *, outputs=(), arguments=(), timeout
         if (prior["record_id"] != record_id or prior["entrypoint"] != entrypoint
                 or prior["arguments"] != arguments or prior["config"] != record["config"]
                 or prior["source_manifest"] != record["sources"]
-                or prior["environment"] != environment_identity):
-            raise LedgerError("Resume requires identical record, entrypoint, arguments and interpreter/platform")
+                or prior["environment"] != environment_identity
+                or prior.get("captured_inputs", []) != record.get("inputs", [])
+                or prior.get("dependency_manifest", {}) != observed_dependencies):
+            raise LedgerError("Resume requires identical record, entrypoint, arguments, inputs and dependency/runtime identities")
         if checkpoint not in prior.get("declared_checkpoints", []):
             raise LedgerError("Checkpoint was not explicitly declared by the prior run")
         saved = next((a for a in prior["artifacts"] if a["path"] == checkpoint), None)
@@ -176,6 +200,8 @@ def execute(project, record_id, entrypoint, *, outputs=(), arguments=(), timeout
                 or reused["arguments"] != arguments or canonical(reused["config"]) != canonical(record["config"])
                 or reused["source_manifest"] != record["sources"]
                 or reused["environment"] != environment_identity
+                or reused.get("captured_inputs", []) != record.get("inputs", [])
+                or reused.get("dependency_manifest", {}) != observed_dependencies
                 or reused["declared_outputs"] != outputs
                 or reused.get("declared_checkpoints", []) != checkpoints
                 or canonical(reused.get("reuse_context")) != canonical(reuse_context)):
@@ -192,6 +218,7 @@ def execute(project, record_id, entrypoint, *, outputs=(), arguments=(), timeout
         "status": "preparing", "started_at": None, "finished_at": None,
         "entrypoint": entrypoint, "arguments": arguments, "timeout_seconds": timeout,
         "config": record["config"], "source_manifest": record["sources"],
+        "captured_inputs": record.get("inputs", []), "dependency_manifest": observed_dependencies,
         "declared_outputs": outputs, "declared_checkpoints": checkpoints,
         "resume_from": resume, "input_manifest": [], "artifacts": [], "output_errors": [],
         "execution_kind": "reused" if reused is not None else "executed",
@@ -199,7 +226,7 @@ def execute(project, record_id, entrypoint, *, outputs=(), arguments=(), timeout
         "returncode": None, "pid": None, "error": None, "interruption_signal": None,
         "environment": environment_identity,
         "logs": {"stdout": "stdout.log", "stderr": "stderr.log"},
-        "gaps": ["Dependencies and external inputs are not snapshotted",
+        "gaps": ["Only explicitly captured inputs and selected distribution versions are recorded; other external state and dependency bytes are not snapshotted",
                  "Process exit and captured outputs do not establish scientific correctness",
                  "Inherited environment can affect execution; environment variables are not recorded"],
     }
@@ -214,6 +241,19 @@ def execute(project, record_id, entrypoint, *, outputs=(), arguments=(), timeout
             copied = copy_bytes(original, work / name)
             if copied["size_bytes"] != item["size_bytes"] or copied["sha256"] != item["sha256"]:
                 raise LedgerError(f"Captured source failed hash verification: {name}")
+        for name, item in inputs.items():
+            original = snapshot / name
+            if any((snapshot / Path(*Path(name).parts[:i])).is_symlink()
+                   for i in range(1, len(Path(name).parts) + 1)):
+                raise LedgerError("Captured input symlinks cannot be copied")
+            if not original.resolve().is_relative_to(snapshot.resolve()) or not original.is_file():
+                raise LedgerError("Captured input is missing or outside its snapshot")
+            saved = copy_bytes(original, directory / "inputs" / name)
+            if any(saved[k] != item[k] for k in saved):
+                (directory / "inputs" / name).unlink()
+                raise LedgerError(f"Captured input failed hash verification: {name}")
+            payload["input_manifest"].append({"path": name, **saved})
+            copy_bytes(directory / "inputs" / name, work / name)
         if reused is not None:
             base = project.directory / "runs" / reused["id"] / "artifacts"
             for item in reused["artifacts"]:

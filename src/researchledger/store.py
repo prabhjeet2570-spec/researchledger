@@ -95,9 +95,9 @@ class Project:
         return path.as_posix(), resolved
 
     def record(self, question, sources, config=None, gaps=None, parent=None,
-               origin="manual"):
+               origin="manual", *, inputs=()):
         """Record a question and captured files without claiming they executed."""
-        return self._capture_record(question, sources, config, gaps, parent, origin)
+        return self._capture_record(question, sources, config, gaps, parent, origin, inputs=inputs)
 
     def import_history(self, manifest):
         """Preserve declared historical evidence, without verifying its claims.
@@ -139,7 +139,7 @@ class Project:
                                     artifacts=artifacts, historical=historical)
 
     def _capture_record(self, question, sources, config=None, gaps=None, parent=None,
-                        origin="manual", *, artifacts=(), historical=None):
+                        origin="manual", *, artifacts=(), historical=None, inputs=()):
         require_text(question, "Question")
         if origin not in {"manual", "agent", "historical"}:
             raise LedgerError("Origin must be manual, agent, or historical")
@@ -152,19 +152,23 @@ class Project:
         canonical(config)
         if parent is not None:
             self.get(parent)
-        files = [(self._source(s), None) for s in sources]
-        files += [(self._source(a["path"]), a["role"]) for a in artifacts]
+        if isinstance(sources, str) or isinstance(inputs, str):
+            raise LedgerError("Sources and inputs must be sequences of relative file paths")
+        files = [(self._source(s), "source", None) for s in sources]
+        files += [(self._source(i), "input", None) for i in inputs]
+        files += [(self._source(a["path"]), "artifact", a["role"]) for a in artifacts]
         if not files:
             raise LedgerError("Capture requires at least one explicit source")
-        if len({name for (name, _), _role in files}) != len(files):
-            raise LedgerError("Duplicate source or artifact paths")
+        if len({name for (name, _), _kind, _role in files}) != len(files):
+            raise LedgerError("Duplicate source, input or artifact paths")
         identifier = "exp-" + uuid.uuid4().hex
         staging = Path(tempfile.mkdtemp(prefix=".capture-", dir=self.directory))
         final = self.directory / "snapshots" / identifier
         try:
             manifest = []
             artifact_manifest = []
-            for (name, source), role in files:
+            input_manifest = []
+            for (name, source), kind, role in files:
                 target = staging / name
                 target.parent.mkdir(parents=True, exist_ok=True)
                 # Hash the bytes actually captured, not a later reread of the source.
@@ -176,8 +180,10 @@ class Project:
                         digest.update(chunk)
                         size += len(chunk)
                 item = {"path": name, "size_bytes": size, "sha256": digest.hexdigest()}
-                if role is None:
+                if kind == "source":
                     manifest.append(item)
+                elif kind == "input":
+                    input_manifest.append(item)
                 else:
                     item["role"] = role
                     artifact_manifest.append(item)
@@ -185,6 +191,8 @@ class Project:
                        "origin": origin, "parent": parent, "config": config,
                        "execution_status": "not_observed", "gaps": gaps,
                        "sources": manifest}
+            if input_manifest:
+                payload["inputs"] = input_manifest
             if historical is not None:
                 payload["historical"] = historical
                 payload["artifacts"] = artifact_manifest
@@ -212,13 +220,13 @@ class Project:
 
     def execute(self, record_id, entrypoint, *, outputs=(), arguments=(), timeout=3600,
                 checkpoints=(), resume_from=None, checkpoint=None, reuse_from=None,
-                reuse_reason=None, reuse_context=None):
+                reuse_reason=None, reuse_context=None, dependencies=()):
         """Execute a copied source snapshot locally; each attempt gets a run ID."""
         from .executor import execute
         return execute(self, record_id, entrypoint, outputs=outputs,
                        arguments=arguments, timeout=timeout, checkpoints=checkpoints,
                        resume_from=resume_from, checkpoint=checkpoint, reuse_from=reuse_from,
-                       reuse_reason=reuse_reason, reuse_context=reuse_context)
+                       reuse_reason=reuse_reason, reuse_context=reuse_context, dependencies=dependencies)
 
     def export(self, output, record_ids=None):
         """Write a portable ZIP of saved evidence, including selected ancestors."""
@@ -297,7 +305,7 @@ class Project:
         """Verify saved source/artifact bytes. Does not check scientific correctness."""
         errors = []
         for record in self.records():
-            for item in record["sources"] + record.get("artifacts", []):
+            for item in record["sources"] + record.get("inputs", []) + record.get("artifacts", []):
                 path = self.directory / "snapshots" / record["id"] / item["path"]
                 if not path.is_file():
                     errors.append({"id": record["id"], "path": item["path"],

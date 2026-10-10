@@ -78,7 +78,7 @@ def export_bundle(project, output, record_ids=None):
 
         for record in records:
             base = project.directory / "snapshots" / record["id"]
-            for item in record["sources"] + record.get("artifacts", []):
+            for item in record["sources"] + record.get("inputs", []) + record.get("artifacts", []):
                 capture(record["id"], item, base, Path("snapshots") / record["id"])
         for run in runs:
             if run["finished_at"] is None:
@@ -116,7 +116,7 @@ def export_bundle(project, output, record_ids=None):
             "limitations": [
                 "Hashes check bytes, not scientific correctness or authenticity.",
                 "Historical claims and research judgments remain unverified declarations.",
-                "Dependencies, external datasets/checkpoints and working run directories are not bundled.",
+                "Uncaptured external datasets/checkpoints, dependency bytes and working run directories are not bundled.",
                 "Records preserve declared gaps; integrity_ok does not mean provenance is complete.",
                 "This is an evidence archive, not a restorable ledger or runnable environment.",
                 "Review all contents before sharing; no secret redaction is performed.",

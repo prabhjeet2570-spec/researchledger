@@ -24,6 +24,7 @@ def main(argv=None):
     record = commands.add_parser("record", help="Snapshot explicit files; does not execute them")
     record.add_argument("--question", required=True)
     record.add_argument("--source", action="append", required=True)
+    record.add_argument("--input", action="append", default=[], help="Explicit project-relative data file to snapshot")
     record.add_argument("--config", type=Path, help="JSON configuration file")
     record.add_argument("--gap", action="append", default=[])
     record.add_argument("--parent")
@@ -35,6 +36,7 @@ def main(argv=None):
     run.add_argument("--entrypoint", required=True)
     run.add_argument("--output", action="append", default=[], help="Expected file relative to run workspace")
     run.add_argument("--arg", action="append", default=[], help="Script argument; use --arg=-flag")
+    run.add_argument("--dependency", action="append", default=[], help="Observe an installed distribution version")
     run.add_argument("--timeout", type=float, default=3600)
     run.add_argument("--checkpoint-output", action="append", default=[], help="Explicit resumable output file")
     run.add_argument("--resume-from", help="Finalized prior run ID")
@@ -71,7 +73,7 @@ def main(argv=None):
             if args.command == "record":
                 config = json.loads(args.config.read_text()) if args.config else {}
                 output = project.record(args.question, args.source, config, args.gap,
-                                        args.parent, args.origin)
+                                        args.parent, args.origin, inputs=args.input)
             elif args.command == "import":
                 output = project.import_history(json.loads(args.manifest.read_text()))
             elif args.command == "run":
@@ -80,7 +82,8 @@ def main(argv=None):
                                          checkpoints=args.checkpoint_output, resume_from=args.resume_from,
                                          checkpoint=args.checkpoint, reuse_from=args.reuse_from,
                                          reuse_reason=args.reuse_reason,
-                                         reuse_context=json.loads(args.reuse_context.read_text()) if args.reuse_context else None)
+                                         reuse_context=json.loads(args.reuse_context.read_text()) if args.reuse_context else None,
+                                         dependencies=args.dependency)
                 print(canonical(output))
                 return 0 if output["status"] in {"succeeded", "reused"} else 1
             elif args.command == "runs":
