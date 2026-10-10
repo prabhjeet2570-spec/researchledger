@@ -31,8 +31,8 @@ retains logs and a request artifact when zero intervals is rejected, revises an
 evidence-linked decision, verifies saved bytes, and writes `evidence.zip` plus a
 readable `summary.json`. Results are computed during your run, not downloaded or
 prebuilt. The example uses the same SDK operations exposed by the CLI; no agent
-model API, GPU or cluster is required. Explicit checkpoint resume is available for finalized local runs. Automatic
-result reuse is not implemented yet.
+model API, GPU or cluster is required. Explicit checkpoint resume and declared-context output reuse are available for
+finalized local runs. Fresh execution remains the default.
 
 ## Try the first milestone
 
@@ -212,6 +212,47 @@ prior run, saves the checkpoint as a verified input and includes it in exports.
 This does not verify dependency versions, external inputs or checkpoint semantics.
 Live checkpoint synchronization and recovery after SIGKILL or executor crashes
 remain future work; only finalized attempts can be resumed.
+
+Reuse completed output evidence explicitly, without launching another process:
+
+```json
+{
+  "inputs": {},
+  "dependencies": {"python": "stdlib-only"},
+  "environment": {"algorithm": "integer-arithmetic"},
+  "seed": null,
+  "deterministic": true
+}
+```
+
+Save this as `context.json`, declaring every relevant external input identity
+(prefer a content hash), dependency version, environment setting and random seed.
+Empty identity maps declare that no such external factors are relevant; `seed`
+may be null for an algorithm without randomness. Do not put secrets in this file.
+The context is a caller declaration, not an automatically verified environment.
+
+```sh
+researchledger run exp-<identifier> --entrypoint experiment.py --output metrics.json --reuse-context context.json
+researchledger run exp-<identifier> --entrypoint experiment.py --output metrics.json --reuse-context context.json --reuse-from run-<identifier> --reuse-reason "Same deterministic calculation and declared inputs"
+```
+
+Python uses `project.execute(..., reuse_context=context)` on the original run;
+subsequent requests also pass `reuse_from=prior_run["id"]` and `reuse_reason`.
+Reuse requires a finalized successful original execution, identical experiment,
+source/configuration, entrypoint, arguments, output/checkpoint declarations, basic
+runtime identity and deterministic context. All declared outputs must exist and
+pass hash verification. Older runs without a context, failed/incomplete runs,
+resumed runs and reuse records cannot serve as reuse sources in this version.
+
+A reused request gets a new record with `status="reused"`, `execution_kind="reused"`,
+prior-run lineage, reason and independently copied verified output evidence.
+It has no process, execution start, return code or new execution logs. Verification
+and portable exports include its saved outputs and distinguish it from computation.
+A missing or changed output produces a failed preparation record; it never silently
+launches a replacement experiment. Omit `reuse_from` to execute afresh for an
+independent replication. No cache lookup, automatic freshness assessment or
+scientific reproducibility guarantee is provided. The caller must assess untracked
+state, nondeterminism and whether old evidence is appropriate for the current request.
 
 ```python
 from researchledger import Project

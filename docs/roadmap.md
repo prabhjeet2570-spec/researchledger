@@ -1,6 +1,8 @@
 # Progressive development plan
 
 Each milestone is implemented, verified, then committed with actual timestamps.
+The latest user instruction removes artificial publication delays: work and publish
+as soon as each coherent change is ready.
 No prepared future code is replayed to manufacture a development history.
 
 1. **Source capture:** package, SDK/CLI, explicit snapshots, parent relationships,
@@ -74,10 +76,12 @@ The user has authorized continued development toward the full SDK/CLI package.
 Checkpoint resume for finalized local attempts is implemented: declared saved
 checkpoints become verified inputs to new linked attempts. Experiment code owns
 state restoration. Live checkpoint synchronization and abrupt-crash recovery
-remain open. Remaining work includes:
+remain open. Explicit deterministic-context output reuse is also implemented,
+with verified copied outputs, no new process, recorded rationale and original-run
+lineage. External identities remain caller declarations. Remaining work includes:
 
-- Durable live checkpoint capture/recovery and explicit compatible-output reuse
-  to avoid wasted compute. Experiment code must save/restore its own state; resume attempts should
+- Durable live checkpoint capture/recovery and stronger observed input/environment
+  identity checks for output reuse to avoid wasted compute. Experiment code must save/restore its own state; resume attempts should
   verify compatibility and retain checkpoint/run lineage. Fresh replication must
   remain distinguishable from cached evidence.
 - Reproducibility manifests for input versions, seeds and dependency/environment

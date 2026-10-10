@@ -39,6 +39,9 @@ def main(argv=None):
     run.add_argument("--checkpoint-output", action="append", default=[], help="Explicit resumable output file")
     run.add_argument("--resume-from", help="Finalized prior run ID")
     run.add_argument("--checkpoint", help="Saved checkpoint output path from prior run")
+    run.add_argument("--reuse-from", help="Explicit successful prior run; launches no process")
+    run.add_argument("--reuse-reason", help="Why saved evidence is suitable for this request")
+    run.add_argument("--reuse-context", type=Path, help="JSON identities, seed and determinism declaration")
     runs = commands.add_parser("runs", help="List local execution attempts")
     runs.add_argument("--record")
     show_run = commands.add_parser("show-run", help="Read a persisted execution attempt")
@@ -75,9 +78,11 @@ def main(argv=None):
                 output = project.execute(args.id, args.entrypoint, outputs=args.output,
                                          arguments=args.arg, timeout=args.timeout,
                                          checkpoints=args.checkpoint_output, resume_from=args.resume_from,
-                                         checkpoint=args.checkpoint)
+                                         checkpoint=args.checkpoint, reuse_from=args.reuse_from,
+                                         reuse_reason=args.reuse_reason,
+                                         reuse_context=json.loads(args.reuse_context.read_text()) if args.reuse_context else None)
                 print(canonical(output))
-                return 0 if output["status"] == "succeeded" else 1
+                return 0 if output["status"] in {"succeeded", "reused"} else 1
             elif args.command == "runs":
                 output = project.runs(args.record)
             elif args.command == "show-run":

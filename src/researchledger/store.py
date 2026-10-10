@@ -211,12 +211,14 @@ class Project:
         return [json.loads(row[0]) for row in rows]
 
     def execute(self, record_id, entrypoint, *, outputs=(), arguments=(), timeout=3600,
-                checkpoints=(), resume_from=None, checkpoint=None):
+                checkpoints=(), resume_from=None, checkpoint=None, reuse_from=None,
+                reuse_reason=None, reuse_context=None):
         """Execute a copied source snapshot locally; each attempt gets a run ID."""
         from .executor import execute
         return execute(self, record_id, entrypoint, outputs=outputs,
                        arguments=arguments, timeout=timeout, checkpoints=checkpoints,
-                       resume_from=resume_from, checkpoint=checkpoint)
+                       resume_from=resume_from, checkpoint=checkpoint, reuse_from=reuse_from,
+                       reuse_reason=reuse_reason, reuse_context=reuse_context)
 
     def export(self, output, record_ids=None):
         """Write a portable ZIP of saved evidence, including selected ancestors."""

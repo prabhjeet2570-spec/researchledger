@@ -1,6 +1,7 @@
 """Synchronous local Python execution. Working copies are not a code sandbox."""
 
 import hashlib
+import json
 from contextlib import contextmanager
 import math
 import os
@@ -81,8 +82,38 @@ def stop_process(process):
     process.wait()
 
 
-def execute(project, record_id, entrypoint, *, outputs=(), arguments=(), timeout=3600, checkpoints=(), resume_from=None, checkpoint=None):
+def declared_context(value):
+    """Validate caller declarations; they are not observed external state."""
+    if value is None:
+        return None
+    if not isinstance(value, dict) or set(value) != {"inputs", "dependencies", "environment", "seed", "deterministic"}:
+        raise LedgerError("Reuse context requires inputs, dependencies, environment, seed and deterministic")
+    for field in ("inputs", "dependencies", "environment"):
+        if not isinstance(value[field], dict):
+            raise LedgerError(f"Reuse context {field} must map names to explicit identities")
+        for key, identity in value[field].items():
+            require_text(key, "Identity name")
+            require_text(identity, "Identity value")
+    if type(value["deterministic"]) is not bool:
+        raise LedgerError("Reuse context deterministic must be a boolean")
+    if value["seed"] is not None and type(value["seed"]) is not int:
+        raise LedgerError("Reuse context seed must be an integer or null")
+    return json.loads(canonical(value))
+
+
+def execute(project, record_id, entrypoint, *, outputs=(), arguments=(), timeout=3600,
+            checkpoints=(), resume_from=None, checkpoint=None, reuse_from=None,
+            reuse_reason=None, reuse_context=None):
     record = project.get(record_id)
+    reuse_context = declared_context(reuse_context)
+    if reuse_from is None and reuse_reason is not None:
+        raise LedgerError("Reuse reason requires a prior run")
+    if reuse_from is not None:
+        require_text(reuse_reason, "Reuse reason")
+        if resume_from is not None or checkpoint is not None:
+            raise LedgerError("Resume and result reuse are separate operations")
+        if reuse_context is None or not reuse_context["deterministic"]:
+            raise LedgerError("Reuse requires an explicit deterministic context")
     if isinstance(checkpoints, str):
         raise LedgerError("Checkpoints must be a sequence of output paths")
     checkpoints = [relative_file(p) for p in checkpoints]
@@ -134,6 +165,24 @@ def execute(project, record_id, entrypoint, *, outputs=(), arguments=(), timeout
             raise LedgerError("Prior checkpoint was not captured")
         resume = {"run_id": resume_from, "checkpoint": dict(saved)}
 
+    reused = None
+    if reuse_from is not None:
+        reused = project.get_run(reuse_from)
+        if reused["status"] != "succeeded" or reused["finished_at"] is None:
+            raise LedgerError("Reuse requires a finalized successful execution")
+        if reused.get("resume_from") is not None:
+            raise LedgerError("Resumed execution reuse requires checkpoint identity support; use fresh execution")
+        if (reused["record_id"] != record_id or reused["entrypoint"] != entrypoint
+                or reused["arguments"] != arguments or canonical(reused["config"]) != canonical(record["config"])
+                or reused["source_manifest"] != record["sources"]
+                or reused["environment"] != environment_identity
+                or reused["declared_outputs"] != outputs
+                or reused.get("declared_checkpoints", []) != checkpoints
+                or canonical(reused.get("reuse_context")) != canonical(reuse_context)):
+            raise LedgerError("Reuse requires identical snapshot, arguments, outputs, runtime and declared context")
+        if not outputs or reused["output_errors"] or {a["path"] for a in reused["artifacts"]} != set(outputs):
+            raise LedgerError("Reuse requires complete declared output evidence")
+
     identifier = "run-" + uuid.uuid4().hex
     directory = project.directory / "runs" / identifier
     work = directory / "work"
@@ -145,6 +194,8 @@ def execute(project, record_id, entrypoint, *, outputs=(), arguments=(), timeout
         "config": record["config"], "source_manifest": record["sources"],
         "declared_outputs": outputs, "declared_checkpoints": checkpoints,
         "resume_from": resume, "input_manifest": [], "artifacts": [], "output_errors": [],
+        "execution_kind": "reused" if reused is not None else "executed",
+        "reused_from": reuse_from, "reuse_reason": reuse_reason, "reuse_context": reuse_context,
         "returncode": None, "pid": None, "error": None, "interruption_signal": None,
         "environment": environment_identity,
         "logs": {"stdout": "stdout.log", "stderr": "stderr.log"},
@@ -163,6 +214,28 @@ def execute(project, record_id, entrypoint, *, outputs=(), arguments=(), timeout
             copied = copy_bytes(original, work / name)
             if copied["size_bytes"] != item["size_bytes"] or copied["sha256"] != item["sha256"]:
                 raise LedgerError(f"Captured source failed hash verification: {name}")
+        if reused is not None:
+            base = project.directory / "runs" / reused["id"] / "artifacts"
+            for item in reused["artifacts"]:
+                name = relative_file(item["path"])
+                original = base / name
+                if any((base / Path(*Path(name).parts[:i])).is_symlink()
+                       for i in range(1, len(Path(name).parts) + 1)):
+                    raise LedgerError("Reused output symlinks cannot be copied")
+                if not original.resolve().is_relative_to(base.resolve()) or not original.is_file():
+                    raise LedgerError("Reused output is missing or outside saved storage")
+                saved = copy_bytes(original, directory / "artifacts" / name)
+                if any(saved[k] != item[k] for k in saved):
+                    (directory / "artifacts" / name).unlink()
+                    raise LedgerError("Reused output failed hash verification")
+                payload["artifacts"].append({"path": name, **saved})
+            payload.update(status="reused", logs={}, log_manifest=[], finished_at=now())
+            payload["gaps"].extend([
+                "No process was launched; reused evidence is not independent replication",
+                "External input/dependency/environment identities and determinism are caller declarations, not verified observations",
+            ])
+            project._save_run(payload)
+            return payload
         (work / reserved).write_text(canonical(record["config"]) + "\n", encoding="utf-8")
         environment = os.environ.copy()
         environment.pop("RESEARCHLEDGER_RESUME", None)
@@ -218,7 +291,7 @@ def execute(project, record_id, entrypoint, *, outputs=(), arguments=(), timeout
             payload["returncode"] = process.returncode
 
     # Preserve available declared outputs even after failure or timeout.
-    for name in outputs:
+    for name in ([] if reused is not None else outputs):
         source = work / name
         try:
             if any((work / Path(*Path(name).parts[:i])).is_symlink()
